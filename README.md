@@ -9,7 +9,7 @@ at every quarter close. One static HTML file, no build step, no dependencies, no
 ## What FIP-0118 is
 
 FIP-0118 replaces the Fil+ program with a three-way split of the block reward: **w1** to consensus,
-**w2** to service (paid to the Orchestrator), and **w0** burned. From activation the split evolves over
+**w2** to service (paid to Orchestrators), and **w0** burned. From activation the split evolves over
 roughly nine quarters — w1 ramps down continuously on a fixed schedule from 95% to 50%, while w2 steps
 up 5 percentage points at a quarter close only if that quarter's settlement volume clears a fixed USD
 target. w0 is the remainder (`w0 = 1 − w1 − w2`), so a missed gate does not stall the ramp: w1 keeps
@@ -26,7 +26,7 @@ reporting, verification and governance actions with hard deadlines.
   skipping a rung. The terminal state and the burn peak update live. Full state lives in the URL, so a
   scenario can be shared as a link.
 - **The quarter close cycle** — pick any quarter to get a Gantt of its close sequence across six actor
-  lanes (Protocol/f02, Orchestrator, SRA Governance, SWA Governance, Permissionless, Volume Gate), with
+  lanes (Protocol/f02, Orchestrators, SRA Governance, SWA Governance, Permissionless, Volume Gate), with
   the dependency chain drawn: PostVolume → verification window → FinalizeConversion → SubmitShares →
   QuarterlyGateCheck → SWA confirmation → SWA_TIMELOCK expiry. Q1 also shows the one-time activation
   events. Every event carries its actor, dates, description and source.

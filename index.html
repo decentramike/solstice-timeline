@@ -512,8 +512,8 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
       <div class="eyebrow">FIP-0118 &middot; Solstice</div>
       <h1>Reward split timeline <span class="dim">&amp; quarterly gate cycle</span></h1>
       <p class="tagline">
-        Every block reward splits three ways: <b>consensus (w1)</b> to miners, <b>service (w2)</b> to the
-        Orchestrator, and <b>burn (w0)</b>, which is destroyed. Over nine quarters w1 ramps down on a fixed
+        Every block reward splits three ways: <b>consensus (w1)</b> to miners, <b>service (w2)</b> to
+        Orchestrators, and <b>burn (w0)</b>, which is destroyed. Over nine quarters w1 ramps down on a fixed
         schedule while w2 steps up only when a quarter&rsquo;s settlement volume clears its gate &mdash; whatever
         those two leave over is burned. Flip any gate to see the consequence. Every date derives from the
         activation date; FIP-0118 names none.
@@ -577,7 +577,7 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
           </div>
           <p class="caption" id="macroCaption"></p>
           <dl class="glossary">
-            <dt>FPV</dt><dd>the quarterly settlement volume the Orchestrator posts &mdash; stablecoin USD plus a FIL per-period vector. AggregatedFPV is the figure a gate compares against its target.</dd>
+            <dt>FPV</dt><dd>the quarterly settlement volume Orchestrators post &mdash; stablecoin USD plus a FIL per-period vector. AggregatedFPV is the figure a gate compares against its target.</dd>
             <dt>SRA</dt><dd>the authority the volume is posted to, which re-derives it from public settlement events and can correct it.</dd>
             <dt>SWA</dt><dd>the authority that writes a new w2 on-chain once a gate clears, after a 7-day visibility hold.</dd>
             <dt>f02</dt><dd>the L1 actor holding the weights and the wallet-to-share map.</dd>
@@ -854,11 +854,11 @@ const TOTAL_DAYS = N_QUARTERS * QUARTER_DAYS + TERMINAL_DAYS;
 /* ---------- actors ---------- */
 const ACTORS = {
   protocol:      { label: 'Protocol / f02 (L1)', short: 'Protocol', color: 'var(--a-protocol)' },
-  orchestrator:  { label: 'Orchestrator',        short: 'Orchestrator', color: 'var(--a-orch)' },
-  sra:           { label: 'SRA Governance',      short: 'SRA Gov', color: 'var(--a-sra)' },
-  swa:           { label: 'SWA Governance',      short: 'SWA Gov', color: 'var(--a-swa)' },
-  permissionless:{ label: 'Permissionless',      short: 'Permissionless', color: 'var(--a-perm)' },
-  gate:          { label: 'Volume Gate',         short: 'Volume Gate', color: 'var(--a-gate)' }
+  orchestrator:  { label: 'Orchestrators',       short: 'Orch.',    color: 'var(--a-orch)' },
+  sra:           { label: 'SRA Governance',      short: 'SRA Gov',  color: 'var(--a-sra)' },
+  swa:           { label: 'SWA Governance',      short: 'SWA Gov',  color: 'var(--a-swa)' },
+  permissionless:{ label: 'Permissionless',      short: 'Perm.',    color: 'var(--a-perm)' },
+  gate:          { label: 'Volume Gate',         short: 'Gate',     color: 'var(--a-gate)' }
 };
 const LANE_ORDER = ['protocol', 'orchestrator', 'sra', 'swa', 'permissionless', 'gate'];
 
@@ -925,7 +925,7 @@ function eventsForQuarter(q, scenario, activationMs) {
     ev.push({
       id: 'register-pairs', actor: 'orchestrator', name: 'RegisterPairs', kind: 'bar',
       start: 2, end: 12, rel: 'Before first settlement', when: 'Before the first settlement (no fixed date)',
-      desc: 'Register (payer, operator) pairs so settlement events can be bound to the Orchestrator.',
+      desc: 'Register (payer, operator) pairs so settlement events can be bound to the registering Orchestrator.',
       source: 'FIP-0118 (RegisterPairs)', oneTime: true, indicative: true
     });
   }
@@ -945,7 +945,7 @@ function eventsForQuarter(q, scenario, activationMs) {
   ev.push({
     id: 'self-monitor', actor: 'orchestrator', name: 'Self-monitor & reconcile', kind: 'bar',
     start: QE + POSTING_DAYS, end: QE + VERIFY_END, rel: 'QE+3d → QE+10d', when: span(QE + POSTING_DAYS, QE + VERIFY_END),
-    desc: 'Orchestrator recomputes its own FPV, reconciles it against the posted figure, and flags discrepancies proactively rather than waiting to be caught.',
+    desc: 'Orchestrators recompute their own FPV, reconcile it against the figure posted for them, and flag discrepancies proactively rather than waiting to be caught.',
     source: 'Gov repo 03 (Orchestrator obligations)', deps: ['post-volume']
   });
   ev.push({
@@ -963,7 +963,7 @@ function eventsForQuarter(q, scenario, activationMs) {
   ev.push({
     id: 'submit-shares', actor: 'permissionless', name: 'SubmitShares', kind: 'bar',
     start: QE + VERIFY_END + 2.1, end: QE + VERIFY_END + 3.9, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
-    desc: 'Computes the Orchestrator share via SplitRule and writes the wallet-to-share map to f02 through SetShares.',
+    desc: 'Computes each Orchestrator\u2019s share via SplitRule and writes the wallet-to-share map to f02 through SetShares.',
     source: 'FIP-0118 (SplitRule, SetShares)', deps: ['finalize'], indicative: true
   });
 
@@ -2040,9 +2040,13 @@ function renderMicro() {
     gLanes.appendChild(el('line', { x1: 0, x2: w, y1: lane.top, y2: lane.top, class: 'lane-sep' }));
     const cy = lane.top + lane.h / 2;
     gLanes.appendChild(el('rect', { x: 8, y: cy - 6, width: 4, height: 12, rx: 1.5, fill: ACTORS[lane.key].color }));
-    const wide = gutter > 126 * S;
-    gLanes.appendChild(txt(18, cy + 3.5, wide ? ACTORS[lane.key].label : ACTORS[lane.key].short, 'lane-label',
-      { 'font-size': fs, fill: P['--text-2'] }));
+    const room = gutter - 26;
+    let laneText = ACTORS[lane.key].label;
+    if (laneText.length * charW > room) laneText = ACTORS[lane.key].short;
+    if (laneText.length * charW > room) {
+      laneText = laneText.slice(0, Math.max(3, Math.floor(room / charW) - 1)) + '…';
+    }
+    gLanes.appendChild(txt(18, cy + 3.5, laneText, 'lane-label', { 'font-size': fs, fill: P['--text-2'] }));
   });
   gLanes.appendChild(el('line', { x1: 0, x2: w, y1: plotBottom, y2: plotBottom, class: 'lane-sep' }));
   gLanes.appendChild(el('line', { x1: gutter, x2: gutter, y1: padT - 6, y2: plotBottom, class: 'lane-sep' }));
@@ -2200,7 +2204,7 @@ function renderMicro() {
       tabindex: isNote ? null : '0',
       role: isNote ? null : 'button',
       /* Short name; the prose is the description, via the detail panel. */
-      'aria-label': isNote ? null : e.name + ', ' + ACTORS[e.actor].short + ', ' + e.rel,
+      'aria-label': isNote ? null : e.name + ', ' + ACTORS[e.actor].label + ', ' + e.rel,
       'aria-describedby': isNote ? null : 'detail',
       'aria-pressed': isNote ? null : String(state.pinned === e.id)
     });

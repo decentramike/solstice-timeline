@@ -512,11 +512,8 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
       <div class="eyebrow">FIP-0118 &middot; Solstice</div>
       <h1>Reward split timeline <span class="dim">&amp; quarterly gate cycle</span></h1>
       <p class="tagline">
-        Every block reward splits three ways: <b>consensus (w1)</b> to miners, <b>service (w2)</b> to
-        Orchestrators, and <b>burn (w0)</b>, which is destroyed. Over nine quarters w1 ramps down on a fixed
-        schedule while w2 steps up only when a quarter&rsquo;s settlement volume clears its gate &mdash; whatever
-        those two leave over is burned. Flip any gate to see the consequence. Every date derives from the
-        activation date; FIP-0118 names none.
+        <b>Consensus (w1)</b> falls on a fixed schedule. <b>Service (w2)</b> reaches 10% through a bootstrap
+        quarter, then steps up only when a quarter clears its gate. <b>Burn (w0)</b> takes the rest.
       </p>
     </div>
     <div class="masthead-controls">
@@ -1531,7 +1528,7 @@ function macroAltText() {
   return 'Stacked area chart of the block-reward split from ' + fmtLong(qDate(0)) + ' to ' + fmtLong(qDate(TOTAL_DAYS)) + '. '
     + 'The consensus weight w1 ramps continuously from 95% down to 50% by ' + fmtLong(qDate(N_QUARTERS * QUARTER_DAYS)) + '. '
     + 'The service weight w2 starts at 5%, reaches 10% by the end of the bootstrap quarter, then steps up 5 points at each quarter close whose volume gate passes. '
-    + 'Burn w0 takes whatever w1 and w2 leave, so inside each quarter it climbs 5 points and drops back whenever w2 steps up. '
+    + 'Burn w0 takes whatever w1 and w2 leave, so inside each quarter it climbs 5 points and drops 5 whenever w2 steps up. '
     + 'Across this scenario burn peaks at ' + fmtPct(Math.max.apply(null, state.scenario.quarters.map(q => q.w0End))) + '. '
     + (failed.length
         ? 'The gate is missed at ' + failed.join(', ') + ', so w2 holds there and burn grows. '
@@ -1576,10 +1573,10 @@ function renderMacro(opts) {
   svg.style.fontSize = fs + 'px';
   $('macroAlt').textContent = macroAltText();
   $('macroCaption').textContent =
-    'Read the bands bottom up: consensus, then service, then burn. w1 falls continuously on a fixed schedule, '
-    + 'while w2 only steps up at a close whose gate clears — so burn takes whatever is left, climbing 5 points '
-    + 'through each quarter and dropping back whenever w2 steps. Burn peaks at ' + fmtPct(peakBurn())
-    + ' in this scenario' + (sc.terminal.isBestCase ? ', which is the best case.' : ' (best case: 5%).');
+    'Bottom up: consensus, service, burn. w1 falls continuously; w2 steps up 5 points only at a close whose '
+    + 'gate clears, after ramping to 10% through Q1. Burn takes the rest — it climbs 5 points a quarter and '
+    + 'drops 5 whenever w2 steps. Peak here ' + fmtPct(peakBurn())
+    + (sc.terminal.isBestCase ? ', which is the best case.' : ', best case 5%.');
   $('macroRange').textContent = fmtLong(qDate(V.d0)) + ' – ' + fmtLong(qDate(V.d1))
     + (V.d1 - V.d0 < TOTAL_DAYS - 0.5 ? ' · zoomed' : ' · assumed activation');
 

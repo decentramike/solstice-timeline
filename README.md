@@ -10,9 +10,9 @@ at every quarter close. One static HTML file, no build step, no dependencies, no
 
 FIP-0118 replaces the Fil+ program with a three-way split of the block reward: **w1** to consensus,
 **w2** to service (paid to Orchestrators), and **w0** burned. From activation the split evolves over
-roughly nine quarters — w1 ramps down continuously on a fixed schedule from 95% to 50%, while w2 steps
-up 5 percentage points at a quarter close only if that quarter's settlement volume clears a fixed USD
-target. w0 is the remainder (`w0 = 1 − w1 − w2`), so a missed gate does not stall the ramp: w1 keeps
+roughly nine quarters — w1 ramps down continuously on a fixed schedule from 95% to 50%. w2 reaches 10%
+through a bootstrap first quarter that runs no gate check, and from then on steps up 5 percentage points
+at a quarter close only if that quarter's settlement volume clears a fixed USD target. w0 is the remainder (`w0 = 1 − w1 − w2`), so a missed gate does not stall the ramp: w1 keeps
 falling, w2 holds, and the difference burns. Each quarter close triggers a strict sequence of on-chain
 reporting, verification and governance actions with hard deadlines.
 

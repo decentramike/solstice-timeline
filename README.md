@@ -1,5 +1,7 @@
 # Solstice Timeline
 
+**Live: <https://decentramike.github.io/solstice-timeline/>**
+
 An interactive timeline of the FIP-0118 ("Solstice") block-reward split: the nine-quarter weight
 schedule, the volume gates that unlock each step, and the reporting and governance sequence that runs
 at every quarter close. One static HTML file, no build step, no dependencies, no network calls.
@@ -80,30 +82,29 @@ python3 -m http.server 4173
 
 Then open <http://localhost:4173/>.
 
-## Deploying to GitHub Pages
+## Deploying
 
-Push the repo and enable Pages on the branch and folder holding `index.html`:
-
-```bash
-git remote add origin git@github.com:<org>/<repo>.git
-git push -u origin main
-```
-
-Then in **Settings → Pages**, set Source to "Deploy from a branch", branch `main`, folder `/ (root)`.
-To publish from a `gh-pages` branch instead:
+Pages is already enabled on this repo, serving `main` from `/ (root)`, so pushing to `main` republishes:
 
 ```bash
-git subtree push --prefix . origin gh-pages
+git push origin main
 ```
 
-No `.nojekyll` file is needed — there are no underscore-prefixed paths.
+The build takes under a minute. No `.nojekyll` file is needed — there are no underscore-prefixed paths.
+
+To set the same thing up on a fork or a different repo:
+
+```bash
+gh repo create <org>/<repo> --public --source=. --remote=origin --push
+gh api -X POST repos/<org>/<repo>/pages -f 'source[branch]=main' -f 'source[path]=/'
+```
 
 ## Linking and embedding
 
 The page reads its whole state from the URL, so a link can open a specific scenario:
 
 ```
-index.html?theme=dark#q=5&d=2026-10-15&g=10011111
+https://decentramike.github.io/solstice-timeline/?theme=dark#q=5&d=2026-10-15&g=10011111
 ```
 
 | Parameter | Effect |
@@ -118,7 +119,7 @@ index.html?theme=dark#q=5&d=2026-10-15&g=10011111
 To embed it in a governance-repo page:
 
 ```html
-<iframe src="https://<org>.github.io/<repo>/?embed=1#q=2"
+<iframe src="https://decentramike.github.io/solstice-timeline/?embed=1#q=2"
         title="FIP-0118 Solstice reward split timeline"
         width="100%" height="1400" loading="lazy" style="border:0"></iframe>
 ```

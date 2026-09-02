@@ -113,6 +113,8 @@
    base
    ============================================================ */
 * { box-sizing: border-box; }
+/* Several classes here set display, which outranks the UA [hidden] rule. */
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg);
@@ -1052,6 +1054,12 @@ function txt(x, y, s, cls, attrs) {
   return t;
 }
 function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+/* clientWidth includes padding; drawing to it makes the SVG wider than its box,
+   which max-width then scales back down and softens every label. */
+function contentWidth(node) {
+  const cs = getComputedStyle(node);
+  return Math.max(0, node.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+}
 function tag(name, cls, content) {
   const n = document.createElement(name);
   if (cls) n.className = cls;
@@ -1118,7 +1126,7 @@ const state = {
 /* Pan and zoom act on the time axis only; the weight axis is always 0-100%.
    Drag listeners live on the document because each pan re-renders (and so
    replaces) the SVG the gesture started on. */
-let macroBox = null, macroDrag = null, macroSwallowClick = false;
+let macroBox = null, macroDrag = null, macroSwallowClick = false, macroChrome = null;
 function setView(d0, d1) {
   const span = Math.min(TOTAL_DAYS, Math.max(30, d1 - d0));
   let lo = d0, hi = d0 + span;
@@ -1503,13 +1511,17 @@ function renderMacro(opts) {
 
   const sc = state.scenario;
   const S = scale();
-  const w = Math.max(340, host.clientWidth || 900);
-  let h = Math.round(Math.max(252, Math.min(430, window.innerHeight * 0.33)) * (S > 1 ? 1.06 : 1));
+  const w = Math.max(340, contentWidth(host) || 900);
+  let h = Math.round(Math.max(300, Math.min(460, window.innerHeight * 0.38)) * (S > 1 ? 1.06 : 1));
   /* In the two-column layout the scenario sidebar is the taller element, so
-     grow the chart into that space instead of leaving a hole under it. */
+     grow the chart into that space rather than leaving a hole under it. The
+     panel chrome around the chart is measured on the first pass, so this
+     settles after one re-render instead of relying on a guessed constant. */
   const side = document.querySelector('.col-side');
-  if (side && window.innerWidth > 1180) {
-    h = Math.round(Math.max(h, Math.min(540, side.offsetHeight - Math.round(112 * (S > 1 ? 1.12 : 1)))));
+  const twoCol = side && window.innerWidth > 1180;
+  if (twoCol) {
+    const chrome = macroChrome != null ? macroChrome : Math.round(240 * (S > 1 ? 1.12 : 1));
+    h = Math.round(Math.max(h, Math.min(640, side.offsetHeight - chrome, window.innerHeight * 0.72)));
   }
   const pad = { t: Math.round(34 * S), r: 16, b: Math.round(48 * S), l: Math.round(44 * S) };
   const x0 = pad.l, x1 = w - pad.r, y0 = h - pad.b, y1 = pad.t;
@@ -1804,6 +1816,13 @@ function renderMacro(opts) {
 
   host.insertBefore(svg, readout);
 
+  if (twoCol) {
+    const measured = $('macro-panel').offsetHeight - h;
+    const settled = macroChrome != null && Math.abs(macroChrome - measured) < 2;
+    macroChrome = measured;
+    if (!settled && !opts.reflow) { renderMacro({ reflow: true, animate: opts.animate }); return; }
+  }
+
   if (opts.animate && macroShown && macroShown.length === verts.length && !prefersReduced()) {
     const from = macroShown, t0 = performance.now(), dur = 280;
     const step = now => {
@@ -1863,7 +1882,6 @@ function renderRangeSeg(q) {
     b.dataset.range = key;
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(state.microRange === key));
-    b.setAttribute('aria-pressed', String(state.microRange === key));
     host.appendChild(b);
   }
 }
@@ -1916,7 +1934,7 @@ function renderMicro() {
     + (q.gate ? ' · gate ' + q.gate.n + ' at ' + fmtUSD(q.gate.target) : '')
     + (offscreen ? ' · ' + offscreen + ' event' + (offscreen === 1 ? '' : 's') + ' outside this range' : '');
 
-  const w = Math.max(320, host.clientWidth || 780);
+  const w = Math.max(320, contentWidth(host) || 780);
   const gutter = Math.round(Math.min(160, Math.max(92, w * 0.17)) * S);
   const padT = Math.round(34 * S), padB = Math.round(28 * S), padR = Math.round(16 * S);
   const rowH = Math.round(27 * S), lanePad = Math.round(5 * S);
@@ -2262,7 +2280,9 @@ function glancePanel(q) {
   dl.style.marginTop = '10px';
   const put = (k, v) => { dl.appendChild(tag('dt', null, k)); dl.appendChild(tag('dd', null, v)); };
   put('Gate at this close', q.gate
-    ? 'Gate ' + q.gate.n + ' · ' + fmtUSD(q.gate.target) + ' · ' + (q.gate.passed ? 'passes → w2 ' + fmtPct(q.gate.to) : 'fails → w2 holds at ' + fmtPct(q.gate.from))
+    ? 'Gate ' + q.gate.n + (q.gate.attempt > 1 ? ' (attempt ' + q.gate.attempt + ')' : '')
+      + ' · ' + fmtUSD(q.gate.target) + ' · '
+      + (q.gate.passed ? 'clears → w2 ' + fmtPct(q.gate.to) : 'missed → w2 holds at ' + fmtPct(q.gate.from))
     : (q.bootstrap ? 'None — the bootstrap quarter runs no gate check' : 'None — w2 is already at its terminal 50%'));
   put('Deadlines', 'close ' + fmtShort(qDate(q.endDay))
     + ' · posting ends ' + fmtShort(qDate(q.endDay + POSTING_DAYS))
@@ -2444,6 +2464,19 @@ $('rangeSeg').addEventListener('click', e => {
   renderMicro();
   refocus('#rangeSeg button[data-range="' + b.dataset.range + '"]');
 });
+$('rangeSeg').addEventListener('keydown', e => {
+  const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1
+    : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const opts = [...$('rangeSeg').querySelectorAll('button[data-range]')];
+  const i = opts.findIndex(b => b.getAttribute('aria-checked') === 'true');
+  const next = opts[(i + step + opts.length) % opts.length];
+  if (!next) return;
+  state.microRange = next.dataset.range;
+  renderMicro();
+  refocus('#rangeSeg button[data-range="' + next.dataset.range + '"]');
+});
 $('prevQ').addEventListener('click', () => setSelected(state.selected - 1, '#prevQ'));
 $('nextQ').addEventListener('click', () => setSelected(state.selected + 1, '#nextQ'));
 
@@ -2501,8 +2534,8 @@ else if (darkQuery.addListener) darkQuery.addListener(onScheme);
   renderActorLegend();
   renderAll();
 
-  lastW.macro = Math.round($('macroChart').getBoundingClientRect().width);
-  lastW.micro = Math.round($('microChart').getBoundingClientRect().width);
+  lastW.macro = Math.round(contentWidth($('macroChart')));
+  lastW.micro = Math.round(contentWidth($('microChart')));
   if (ro) { ro.observe($('macroChart')); ro.observe($('microChart')); }
 })();
 </script>

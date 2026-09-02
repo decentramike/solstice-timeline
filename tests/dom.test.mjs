@@ -64,6 +64,20 @@ ok('viewport meta present', /name="viewport"/.test(markup));
 ok('page declares a language', /<html lang="/.test(html));
 ok('title is set', /<title>[^<]{10,}<\/title>/.test(markup));
 
+/* the two densities and the merged chip control */
+ok('a density switch exists', /id="viewBrief"[^>]*role="radio"/.test(markup) && /id="viewDetail"[^>]*role="radio"/.test(markup));
+ok('brief has a quarter line to stand in for the Gantt', idSet.has('quarterLine'));
+ok('both density classes are used',
+  /class="[^"]*\bdetail-only\b/.test(markup) && /class="[^"]*\bbrief-only\b/.test(markup));
+ok('the assumptions panel is a disclosure', idSet.has('caveatDisclose'));
+ok('the retired gate ladder leaves nothing behind',
+  !/id="gatelist"/.test(markup) && !/\bgaterow\b/.test(html) && !/renderSidebar/.test(script));
+/* a chip's two controls must be siblings: a button inside a button is invalid
+   and the inner one is unreachable by keyboard */
+ok('chip controls are built as siblings, not nested',
+  !/appendChild\(t\);[\s\S]{0,80}btn\.appendChild/.test(script)
+  && /wrap\.appendChild\(btn\)/.test(script) && /wrap\.appendChild\(t\)/.test(script));
+
 /* tabs semantics were removed deliberately: role=tab without the pattern
    announces conflicting state, so it must not creep back in */
 ok('no half-implemented tab pattern',

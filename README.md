@@ -20,11 +20,16 @@ reporting, verification and governance actions with hard deadlines.
 
 - **Weight evolution** — a stacked area chart of w1/w2/w0 across all nine quarters plus the terminal
   state, with a gate marker at each quarter close.
-- **A scenario builder** — every gate has a clears/missed toggle. Flipping one holds w2 from that close
-  onward, grows the burn band, and re-attempts *the same target* at the next close. The gate ladder is
-  keyed to w2's current value, not to the quarter number, so a miss delays the schedule without ever
-  skipping a rung. The terminal state and the burn peak update live. Full state lives in the URL, so a
-  scenario can be shared as a link.
+- **A scenario builder in the quarter strip** — each quarter's chip carries both its own controls: the
+  chip selects the quarter, and the gate badge on it flips that quarter's gate between clears and missed.
+  Flipping one holds w2 from that close onward, grows the burn band, and re-attempts *the same target* at
+  the next close. The gate ladder is keyed to w2's current value, not to the quarter number, so a miss
+  delays the schedule without ever skipping a rung. The terminal split and the burn peak update live, and
+  full state lives in the URL, so a scenario can be shared as a link.
+- **Two densities behind one switch** — **Brief** is the chart, the quarters and the terminal split, at
+  about 220 words on screen. **Detail** restores gate targets and dates, the shorthand glossary, the
+  close-cycle Gantt, the standing obligations and the caveats, at about 680. Brief is the default; the
+  choice is remembered and can be forced with `?view=`.
 - **The quarter close cycle** — pick any quarter to get a Gantt of its close sequence across six actor
   lanes (Protocol/f02, Orchestrators, SRA Governance, SWA Governance, Permissionless, Volume Gate), with
   the dependency chain drawn: PostVolume → verification window → FinalizeConversion → SubmitShares →
@@ -115,6 +120,7 @@ https://decentramike.github.io/solstice-timeline/?theme=dark#q=5&d=2026-10-15&g=
 | `#q=<1–10>` | Selected quarter; `10` is the terminal state |
 | `#d=<YYYY-MM-DD>` | Activation date |
 | `#g=<8 chars>` | Gate outcomes at the Q2…Q9 closes, `1` clears and `0` missed. Exactly 8 characters |
+| `?view=brief` \| `?view=detail` | Forces a density; otherwise the last choice is remembered, defaulting to Brief |
 
 To embed it in a governance-repo page:
 
@@ -147,8 +153,10 @@ no duplicate ids, every ARIA reference and in-page anchor resolves, and nothing 
 
 ## Accessibility
 
-Keyboard reachable throughout, with arrow-key navigation across the quarter strip and Escape to dismiss
-tooltips and release a pinned event. Scenario changes are announced through a single polite live region.
+Keyboard reachable throughout. The quarter strip is one tab stop: Left/Right walk the quarters and keep
+you on the control you were using, Down reaches that quarter's gate toggle and Up comes back, Home and
+End jump to the ends. A chip holds two sibling controls rather than a button inside a button, which would
+be invalid and unreachable. Escape dismisses tooltips and releases a pinned event. Scenario changes are announced through a single polite live region.
 The charts carry text alternatives rather than relying on colour, pass/fail always carries a glyph and a
 hatch as well as a colour, and the palette was checked for WCAG contrast in both themes and for
 greyscale and colour-blind separability. Focus is deliberately restored after each re-render, since
@@ -156,6 +164,9 @@ every scenario change rebuilds the controls.
 
 ## Deliberate deviations from the original brief
 
+- **The gate toggles live on the quarter chips, not in a separate list.** The chips and a sidebar ladder
+  were showing the same facts twice — quarter, gate number, target, outcome — so the ladder is gone and
+  the page is one column.
 - **Linked panes with click-to-drill, rather than continuous semantic zoom.** The macro chart and the
   quarter Gantt are separate, always-visible panes; clicking a quarter (or a chip, or the arrow keys)
   drills in. The time axis itself zooms and pans (pinch or shift-scroll to zoom, drag to pan,

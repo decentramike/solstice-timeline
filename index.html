@@ -1,0 +1,2510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solstice Timeline — FIP-0118 reward split &amp; quarterly gate cycle</title>
+<meta name="description" content="Interactive timeline of the FIP-0118 (Solstice) block-reward split: 9 quarters of w1/w2/w0 weight evolution, per-gate scenario toggles, and the end-of-quarter reporting and governance sequence.">
+<style>
+/* ============================================================
+   Solstice Timeline — design tokens
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  /* surfaces. Contrast pairs in this block were measured, not eyeballed:
+     text 4.5:1+ on every surface it lands on, non-text UI 3:1+. */
+  --bg:            #f6f6f3;
+  --panel:         #ffffff;
+  --raised:        #eeeeea;
+  --sunken:        #e4e4de;
+  --plot-bg:       #fbfbf9;
+  --border:        #dcdcd6;   /* decorative hairline: panel edges, table rules */
+  --border-strong: #767b81;   /* control boundaries, quarter gridlines — 3:1+ */
+  --border-axis:   #4d535a;   /* axes */
+
+  /* text */
+  --text:   #15171a;
+  --text-2: #464b52;
+  --text-3: #5f656c;
+
+  --accent:      #1a5aa8;
+  --accent-weak: #eceff4;
+  --focus:       #0b57d0;
+
+  /* weight bands. fill / edge (topline) / ink (labels and legend).
+     The three fills are deliberately light-mid-dark so they stay separable
+     in greyscale, in a projector photo, and for deuteranopia. */
+  --w1:      #1a5087;
+  --w1-fill: #6b9ac9;
+  --w1-edge: #12406f;
+  --w2:      #2f6b26;
+  --w2-fill: #d9ead1;
+  --w2-edge: #2f6b26;
+  --w0:      #8e4020;
+  --w0-fill: #8e4020;
+  --w0-edge: #f0cdb4;
+
+  /* actors */
+  --a-protocol: #17396a;
+  --a-orch:     #ad5c07;
+  --a-sra:      #05403b;
+  --a-swa:      #8150f0;
+  --a-perm:     #20272f;
+  --a-gate:     #d43a3a;
+
+  /* states. Pass and fail are never distinguished by colour alone —
+     they always carry a glyph and, on the toggles, a hatch. */
+  --pass:      #1a6f45;
+  --pass-line: #2b8756;
+  --pass-weak: #e2f1e8;
+  --fail:      #8f1a10;
+  --fail-line: #b3372c;
+  --fail-weak: #fceceb;
+  --na:        #5f656c;
+  --hatch:     rgba(21,23,26,.13);
+
+  /* metrics */
+  --fs: 14px;
+  --hair: 1px;
+  --r:  6px;
+  --r-lg: 10px;
+  --shadow: 0 1px 2px rgba(21,23,26,.07), 0 4px 14px rgba(21,23,26,.06);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+    --bg:#0e1013; --panel:#171a1e; --raised:#202429; --sunken:#080a0c; --plot-bg:#13161a;
+    --border:#272c33; --border-strong:#6a7381; --border-axis:#868f9d;
+    --text:#eef1f4; --text-2:#b4bcc5; --text-3:#949dab;
+    --accent:#6ba7f0; --accent-weak:#1c222b; --focus:#8ab9ff;
+    --w1:#93bce6; --w1-fill:#2f5f93; --w1-edge:#9cc3ec;
+    --w2:#b6dda3; --w2-fill:#d9efcd; --w2-edge:#2b5f22;
+    --w0:#eda877; --w0-fill:#dd944a; --w0-edge:#4a1e0a;
+    --a-protocol:#5d8dcb; --a-orch:#f5cd8f; --a-sra:#379488; --a-swa:#cfbcfa; --a-perm:#7b8798; --a-gate:#f8adaa;
+    --pass:#86e0b0; --pass-line:#4faa7d; --pass-weak:#11241b;
+    --fail:#e56a5e; --fail-line:#c9483c; --fail-weak:#2a1512;
+    --na:#949dab;
+    --hatch:rgba(255,255,255,.10);
+    --shadow: 0 1px 2px rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:#0e1013; --panel:#171a1e; --raised:#202429; --sunken:#080a0c; --plot-bg:#13161a;
+    --border:#272c33; --border-strong:#6a7381; --border-axis:#868f9d;
+    --text:#eef1f4; --text-2:#b4bcc5; --text-3:#949dab;
+    --accent:#6ba7f0; --accent-weak:#1c222b; --focus:#8ab9ff;
+    --w1:#93bce6; --w1-fill:#2f5f93; --w1-edge:#9cc3ec;
+    --w2:#b6dda3; --w2-fill:#d9efcd; --w2-edge:#2b5f22;
+    --w0:#eda877; --w0-fill:#dd944a; --w0-edge:#4a1e0a;
+    --a-protocol:#5d8dcb; --a-orch:#f5cd8f; --a-sra:#379488; --a-swa:#cfbcfa; --a-perm:#7b8798; --a-gate:#f8adaa;
+    --pass:#86e0b0; --pass-line:#4faa7d; --pass-weak:#11241b;
+    --fail:#e56a5e; --fail-line:#c9483c; --fail-weak:#2a1512;
+    --na:#949dab;
+    --hatch:rgba(255,255,255,.10);
+    --shadow: 0 1px 2px rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.35);
+  }
+}
+:root[data-density="large"] { --fs: 17px; --hair: 1.7px; }
+
+/* ============================================================
+   base
+   ============================================================ */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs)/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+button { font: inherit; color: inherit; }
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip {
+  position: absolute; left: 8px; top: -40px; z-index: 20;
+  background: var(--panel); color: var(--text); padding: 8px 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--r);
+  transition: top .12s;
+}
+.skip:focus { top: 8px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+.app { max-width: 1680px; margin: 0 auto; padding: 18px 20px 40px; }
+
+/* ============================================================
+   header
+   ============================================================ */
+.masthead {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px;
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.masthead-id { flex: 1 1 320px; min-width: 0; }
+.eyebrow {
+  font-size: .72em; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 3px;
+}
+.masthead h1 { font-size: 1.5em; line-height: 1.15; }
+.masthead h1 .dim { color: var(--text-3); font-weight: 400; }
+.tagline { color: var(--text-2); font-size: .92em; margin-top: 4px; max-width: 80ch; }
+.tagline b { color: var(--text); font-weight: 600; }
+.masthead-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field > label, .field > .fieldlabel { display: block; font-size: .74em; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.field-row { display: flex; align-items: center; gap: 6px; }
+input[type="date"] {
+  font: inherit; font-family: var(--mono); font-size: .95em;
+  padding: 6px 8px; color: var(--text);
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r);
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--r);
+  cursor: pointer; white-space: nowrap;
+  transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--raised); }
+.btn:active { background: var(--sunken); }
+.btn-sm { padding: 4px 8px; font-size: .86em; }
+.btn[aria-pressed="true"] { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn-ghost:hover { background: var(--raised); color: var(--text); }
+
+/* ============================================================
+   chip strip (breadcrumb + minimap)
+   ============================================================ */
+.stripwrap { margin-bottom: 14px; }
+.striphead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 6px;
+}
+.striphead .label { font-size: .74em; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.striphead .hint { font-size: .84em; color: var(--text-3); }
+.strip {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(8em, 1fr);
+  gap: 5px; overflow-x: auto; padding-bottom: 2px;
+  scrollbar-width: thin; scroll-snap-type: x proximity;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
+}
+.strip > .chip { scroll-snap-align: start; }
+@supports not (mask-image: linear-gradient(to right, transparent, #000)) {
+  .strip { -webkit-mask-image: none; mask-image: none; }
+}
+.chip {
+  display: grid; gap: 1px; text-align: left; cursor: pointer;
+  padding: 7px 8px 8px; min-width: 0;
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
+  border-radius: var(--r); color: inherit;
+  transition: background .12s, border-color .12s, transform .12s;
+}
+.chip:hover { background: var(--raised); }
+.chip[aria-pressed="true"] {
+  border-color: var(--accent); border-left-color: var(--accent);
+  background: var(--accent-weak); box-shadow: inset 0 0 0 1px var(--accent);
+}
+.chip-top { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.chip-q { font-weight: 650; font-size: .96em; letter-spacing: -.01em; }
+.chip-gate { font-size: .74em; font-weight: 600; font-family: var(--mono); white-space: nowrap; }
+.chip-gate.is-pass { color: var(--pass); }
+.chip-gate.is-fail { color: var(--fail); }
+.chip-gate.is-na   { color: var(--na); }
+.chip-dates { font-size: .76em; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-w2 { font-size: .78em; color: var(--text-2); font-family: var(--mono); }
+
+/* ============================================================
+   panels + layout
+   ============================================================ */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 22.5em; gap: 14px; align-items: start; }
+.cols2 { display: grid; grid-template-columns: minmax(0, 1fr) 30em; gap: 14px; margin-top: 14px; align-items: start; }
+.panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow);
+}
+.panel + .panel { margin-top: 14px; }
+.panel-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 14px; padding: 11px 14px; border-bottom: 1px solid var(--border);
+}
+.panel-head h2 { font-size: 1.02em; }
+.panel-head .sub { font-size: .84em; color: var(--text-3); font-weight: 400; }
+.panel-body { padding: 10px 12px 12px; }
+.toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.seg[hidden] { display: none; }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r); overflow: hidden; }
+.seg > button {
+  padding: 4px 10px; font-size: .86em; background: var(--panel); border: 0; cursor: pointer;
+  border-left: 1px solid var(--border);
+}
+.seg > button:first-child { border-left: 0; }
+.seg > button[aria-pressed="true"], .seg > button[aria-checked="true"] { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; font-size: .84em; color: var(--text-2); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.swatch { width: 11px; height: 11px; border-radius: 2px; flex: none; }
+
+/* chart hosts */
+.chart { position: relative; }
+.chart svg { display: block; }
+.chart text { fill: var(--text-2); }
+.axis-line { stroke: var(--border-axis); stroke-width: var(--hair); }
+.grid-line { stroke: var(--border); stroke-dasharray: 2 3; stroke-width: var(--hair); }
+.qband { fill: transparent; cursor: pointer; }
+.qband:hover { fill: var(--raised); fill-opacity: .55; }
+.qband-sel { fill: none; stroke: var(--accent); }
+.qband-tab { fill: var(--accent); }
+.qsep { stroke: var(--border-strong); stroke-width: var(--hair); }
+.band-w1 { fill: var(--w1-fill); stroke: var(--w1); }
+.band-w2 { fill: var(--w2-fill); stroke: var(--w2); }
+.band-w0 { fill: var(--w0-fill); stroke: var(--w0); }
+.band { stroke-width: 1.25; }
+.qlabel { font-weight: 600; fill: var(--text-3); }
+.tick { font-size: 11px; }
+
+/* gate marker */
+.gm { cursor: pointer; }
+.gm-line { stroke-width: 1.25; stroke-dasharray: 3 2.5; }
+.gm-badge { stroke-width: 1.25; }
+.gm-text { font-family: var(--mono); font-weight: 650; }
+.gm:hover .gm-badge { stroke-width: 2; }
+
+/* crosshair */
+.xh-line { stroke-width: var(--hair); pointer-events: none; }
+.readout {
+  position: absolute; z-index: 6; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 7px 9px; font-size: .84em; min-width: 156px;
+}
+.readout-date { font-weight: 650; margin-bottom: 4px; }
+.readout-row { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+.readout-row .k { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.readout-row .v { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.readout[hidden] { display: none; }
+
+/* ============================================================
+   scenario sidebar
+   ============================================================ */
+.summary { padding: 11px 12px; border-bottom: 1px solid var(--border); background: var(--raised); }
+.summary-label { font-size: .74em; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.summary-date { font-size: .82em; color: var(--text-3); margin-bottom: 7px; }
+.wrow { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.wrow .swatch { width: 9px; height: 14px; border-radius: 2px; }
+.wrow .k { flex: 1; font-size: .9em; }
+.wrow .k small { color: var(--text-3); }
+.wrow .v { font-family: var(--mono); font-size: 1.02em; font-weight: 650; font-variant-numeric: tabular-nums; }
+.summary-note { margin-top: 8px; font-size: .84em; color: var(--text-2); }
+.summary-note.is-warn { color: var(--w0); }
+
+.gatelist { display: grid; }
+.gaterow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+}
+.gaterow:last-child { border-bottom: 0; }
+.gaterow.is-current { background: var(--accent-weak); }
+.gaterow-main { flex: 1; min-width: 0; }
+.gaterow-top { display: flex; align-items: baseline; gap: 6px; }
+.gaterow-q { font-weight: 650; font-size: .92em; }
+.gaterow-date { font-size: .78em; color: var(--text-3); font-family: var(--mono); }
+.gaterow-detail { font-size: .8em; color: var(--text-2); }
+.gaterow-detail .tgt { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.gaterow-detail .arrow { color: var(--text-3); }
+.gaterow.is-moot .gaterow-main { opacity: .55; }
+
+.switch {
+  --sw: 44px;
+  position: relative; flex: none; width: var(--sw); height: 24px; padding: 0;
+  border: 1px solid var(--border-strong); border-radius: 999px; cursor: pointer;
+  background: var(--fail-weak); border-color: var(--fail-line);
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--hatch) 3px 6px);
+  transition: background-color .14s, border-color .14s;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--fail);
+  transition: transform .14s, background .14s;
+}
+.switch[aria-checked="true"] { background: var(--pass-weak); border-color: var(--pass-line); background-image: none; }
+.switch[aria-checked="true"]::after { transform: translateX(20px); background: var(--pass); }
+.switch:disabled { cursor: not-allowed; opacity: .4; }
+.switch-label { flex: none; width: 34px; font-size: .76em; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.switch-label.is-pass { color: var(--pass); }
+.switch-label.is-fail { color: var(--fail); }
+
+/* ============================================================
+   micro / gantt
+   ============================================================ */
+.microwrap { display: grid; grid-template-columns: minmax(0, 1fr) 21.5em; gap: 0; }
+.microwrap > * { min-width: 0; }
+.chart > svg { max-width: 100%; }
+.microwrap > .chart { padding: 10px 12px 12px; }
+.detail { border-left: 1px solid var(--border); padding: 12px 13px; min-width: 0; }
+.detail-empty { color: var(--text-3); font-size: .9em; }
+.detail-actor {
+  display: inline-flex; align-items: center; gap: 6px; font-size: .74em; font-weight: 650;
+  letter-spacing: .04em; text-transform: uppercase; margin-bottom: 5px;
+}
+.detail h3 { font-size: 1.06em; margin-bottom: 3px; }
+.detail-when { font-family: var(--mono); font-size: .84em; color: var(--text-2); margin-bottom: 9px; }
+.detail-desc { font-size: .92em; color: var(--text); margin: 0 0 10px; }
+.detail-meta { font-size: .8em; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 8px; }
+.detail-meta dt { font-weight: 650; color: var(--text-2); margin-top: 6px; }
+.detail-meta dd { margin: 1px 0 0; }
+.tag {
+  display: inline-block; font-size: .76em; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border-strong); color: var(--text-2); margin: 3px 4px 0 0;
+}
+.tag.is-indicative { border-style: dashed; }
+
+.lane-label { font-weight: 600; }
+
+.lane-sep { stroke: var(--border); stroke-width: var(--hair); }
+.ev { cursor: pointer; }
+.ev:focus, .gm:focus { outline: none; }
+.ev .fring, .gm .fring { visibility: hidden; fill: none; stroke: var(--focus); stroke-width: 2.5; }
+.ev:focus-visible .fring, .gm:focus-visible .fring { visibility: visible; }
+.hit { fill: transparent; }
+.ev-bar { stroke-width: 1.25; rx: 3; }
+.ev-text { font-size: 11px; font-weight: 550; pointer-events: none; }
+.ev:hover .ev-bar, .ev.is-sel .ev-bar { stroke-width: 2.5; }
+.ev.is-sel .ev-bar { filter: brightness(1.04); }
+.ev-indicative .ev-bar { stroke-dasharray: 4 2.5; }
+.dep { fill: none; stroke: var(--text-3); stroke-width: calc(var(--hair) * 1.3); opacity: .7; }
+.dep-head { fill: var(--text-3); opacity: .55; }
+.dl-line { stroke: var(--text-3); stroke-width: var(--hair); stroke-dasharray: 4 3; opacity: .8; }
+.dl-line.is-major { stroke: var(--accent); stroke-dasharray: none; opacity: .5; }
+.dl-text { font-size: 10.5px; font-family: var(--mono); fill: var(--text-3); }
+
+.tip {
+  position: absolute; z-index: 8; pointer-events: none; max-width: 268px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 8px 10px; font-size: .84em;
+}
+.tip[hidden] { display: none; }
+.tip-title { font-weight: 650; margin-bottom: 2px; }
+.tip-when { font-family: var(--mono); font-size: .92em; color: var(--text-2); }
+.tip-desc { color: var(--text-2); margin-top: 5px; }
+
+/* ============================================================
+   tables + footer
+   ============================================================ */
+.tablewrap { overflow-x: auto; }
+table.data { border-collapse: collapse; width: 100%; font-size: .86em; }
+table.data th, table.data td { padding: 5px 9px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+table.data th:first-child, table.data td:first-child,
+table.data th.tl, table.data td.tl { text-align: left; }
+table.data thead th { color: var(--text-3); font-size: .88em; font-weight: 650; letter-spacing: .03em; text-transform: uppercase; }
+table.data tbody tr:hover { background: var(--raised); }
+table.data td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.data tr.is-sel { background: var(--accent-weak); }
+.state-pass { color: var(--pass); font-weight: 600; }
+.state-fail { color: var(--fail); font-weight: 600; }
+.state-na { color: var(--na); }
+
+details.disclose { border-top: 1px solid var(--border); }
+details.disclose > summary {
+  cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: .94em;
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+details.disclose > summary::-webkit-details-marker { display: none; }
+details.disclose > summary::before {
+  content: ""; width: 0; height: 0; flex: none;
+  border: 5px solid transparent; border-left-color: var(--text-3); margin-left: 2px;
+  transition: transform .15s;
+}
+details.disclose[open] > summary::before { transform: rotate(90deg) translateX(-1px); }
+details.disclose > summary:hover { background: var(--raised); }
+.disclose-body { padding: 4px 14px 14px; }
+
+ol.caveats { margin: 0; padding-left: 20px; font-size: .92em; color: var(--text-2); }
+ol.caveats li { margin-bottom: 7px; }
+ol.caveats strong { color: var(--text); font-weight: 600; }
+
+.caption { margin: 8px 2px 0; font-size: .88em; color: var(--text-2); max-width: 96ch; }
+.caption b { color: var(--text); font-weight: 600; }
+.keyline {
+  display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: .82em; color: var(--text-3);
+  padding: 8px 14px; border-top: 1px solid var(--border);
+}
+.keyline .k { font-family: var(--mono); font-weight: 650; color: var(--text-2); }
+.glossary { margin: 10px 2px 0; font-size: .84em; color: var(--text-3); max-width: 104ch; }
+.glossary dt { display: inline; font-family: var(--mono); font-weight: 650; color: var(--text-2); }
+.glossary dd { display: inline; margin: 0 14px 0 4px; }
+.gate-explainer {
+  margin: 0; padding: 9px 12px; font-size: .84em; color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+.gaterow.is-unreached { opacity: .65; }
+.gaterow-attempt { color: var(--fail); font-weight: 600; }
+.footnote { margin-top: 16px; font-size: .84em; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.footnote a { color: var(--accent); }
+
+/* ============================================================
+   responsive
+   ============================================================ */
+@media (max-width: 1180px) {
+  .cols, .cols2 { grid-template-columns: 1fr; }
+  .microwrap { grid-template-columns: 1fr; }
+  .detail { border-left: 0; border-top: 1px solid var(--border); }
+}
+@media (max-width: 760px) {
+  .app { padding: 12px 12px 32px; }
+  .masthead h1 { font-size: 1.28em; }
+  .strip { grid-auto-columns: minmax(7.4em, 1fr); }
+  .masthead-controls { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0s !important; animation-duration: 0s !important; }
+}
+
+/* embed mode: ?embed=1 for iframing from the governance repo */
+:root[data-embed] .masthead { padding-bottom: 10px; margin-bottom: 10px; }
+:root[data-embed] .masthead-id .tagline { display: none; }
+:root[data-embed] .app { padding-top: 10px; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the timeline</a>
+<div id="statusLive" role="status" aria-live="polite" class="sr-only"></div>
+
+<div class="app">
+
+  <header class="masthead">
+    <div class="masthead-id">
+      <div class="eyebrow">FIP-0118 &middot; Solstice</div>
+      <h1>Reward split timeline <span class="dim">&amp; quarterly gate cycle</span></h1>
+      <p class="tagline">
+        Every block reward splits three ways: <b>consensus (w1)</b> to miners, <b>service (w2)</b> to the
+        Orchestrator, and <b>burn (w0)</b>, which is destroyed. Over nine quarters w1 ramps down on a fixed
+        schedule while w2 steps up only when a quarter&rsquo;s settlement volume clears its gate &mdash; whatever
+        those two leave over is burned. Flip any gate to see the consequence. Every date derives from the
+        activation date; FIP-0118 names none.
+      </p>
+    </div>
+    <div class="masthead-controls">
+      <div class="field">
+        <label for="activation">Activation date</label>
+        <div class="field-row">
+          <input type="date" id="activation" value="2026-10-15" min="2026-01-01" max="2032-12-31">
+          <button type="button" class="btn btn-sm btn-ghost" id="dateReset" title="Back to the Oct 15, 2026 planning assumption">Default</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="fieldlabel" id="viewOptsLabel">View</span>
+        <div class="field-row" id="viewOpts" role="group" aria-labelledby="viewOptsLabel">
+          <button type="button" class="btn btn-sm" id="themeBtn">
+            <span id="themeIcon" aria-hidden="true">&#9789;</span><span id="themeLabel">Dark</span>
+          </button>
+          <button type="button" class="btn btn-sm" id="densityBtn" aria-pressed="false" title="Larger type and thicker lines for projectors">
+            <span aria-hidden="true">&#9707;</span> Projector
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="stripwrap" aria-label="Quarter navigation">
+    <div class="striphead">
+      <span class="label" id="stripLabel">Quarters</span>
+      <span class="hint">Select a quarter to see its end-of-quarter cycle &middot; arrow keys navigate</span>
+    </div>
+    <div class="strip" id="strip" role="group" aria-labelledby="stripLabel"></div>
+  </nav>
+
+  <main id="main" tabindex="-1">
+  <div class="cols">
+    <div class="col-main">
+
+      <section class="panel" id="macro-panel" aria-labelledby="macroTitle">
+        <div class="panel-head">
+          <div>
+            <h2 id="macroTitle">Weight evolution <span class="sub" id="macroRange"></span></h2>
+            <div class="sub">Click a quarter for its close cycle &middot; click a &#10003;/&#10007; badge to flip that gate
+              &middot; pinch or shift-scroll to zoom the axis, drag to pan</div>
+          </div>
+          <div class="toolbar">
+          <button type="button" class="btn btn-sm" id="zoomReset" hidden>Reset zoom</button>
+          <div class="legend" aria-hidden="true">
+            <span class="legend-item"><span class="swatch" style="background:var(--w1-fill);outline:1px solid var(--w1)"></span> w1 consensus</span>
+            <span class="legend-item"><span class="swatch" style="background:var(--w2-fill);outline:1px solid var(--w2)"></span> w2 service</span>
+            <span class="legend-item"><span class="swatch" style="background:var(--w0-fill);outline:1px solid var(--w0)"></span> w0 burn</span>
+            <span class="legend-item" id="ghostLegend" hidden><span class="swatch" style="background:transparent;border-top:2px dashed var(--w2);height:0;border-radius:0"></span> best case</span>
+          </div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <p class="sr-only" id="macroAlt"></p>
+          <div class="chart" id="macroChart">
+            <div class="readout" id="readout" hidden></div>
+          </div>
+          <p class="caption" id="macroCaption"></p>
+          <dl class="glossary">
+            <dt>FPV</dt><dd>the quarterly settlement volume the Orchestrator posts &mdash; stablecoin USD plus a FIL per-period vector. AggregatedFPV is the figure a gate compares against its target.</dd>
+            <dt>SRA</dt><dd>the authority the volume is posted to, which re-derives it from public settlement events and can correct it.</dd>
+            <dt>SWA</dt><dd>the authority that writes a new w2 on-chain once a gate clears, after a 7-day visibility hold.</dd>
+            <dt>f02</dt><dd>the L1 actor holding the weights and the wallet-to-share map.</dd>
+            <dt>QAP</dt><dd>quality-adjusted power.</dd>
+          </dl>
+        </div>
+        <details class="disclose" id="tableDisclose">
+          <summary>Weight schedule as a table <span class="sub" style="font-weight:400;color:var(--text-3)">&mdash; live values for the current scenario</span></summary>
+          <div class="disclose-body tablewrap">
+            <table class="data" id="scheduleTable">
+              <caption class="sr-only">Per-quarter consensus, service and burn weights, gate targets and gate outcomes for the current scenario</caption>
+            </table>
+          </div>
+        </details>
+      </section>
+
+    </div>
+
+    <aside class="col-side">
+      <section class="panel" aria-labelledby="scenarioTitle">
+        <div class="panel-head">
+          <h2 id="scenarioTitle">Scenario</h2>
+          <button type="button" class="btn btn-sm" id="resetGates">Reset all</button>
+        </div>
+        <div class="summary" id="summary"></div>
+        <p class="gate-explainer">Gates are numbered by the w2 step they unlock, not by quarter. Miss one and the
+          <em>same</em> target is re-attempted at the next close &mdash; nothing is skipped.</p>
+        <div class="gatelist" id="gatelist" role="group" aria-label="Volume gate outcomes"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="panel" id="micro-panel" aria-labelledby="microTitle" style="margin-top:14px">
+    <div class="panel-head">
+      <div>
+        <h2 id="microTitle">Quarter detail</h2>
+        <div class="sub" id="microSub"></div>
+      </div>
+      <div class="toolbar">
+        <div class="seg" id="rangeSeg" role="radiogroup" aria-label="Time range shown"></div>
+        <button type="button" class="btn btn-sm" id="prevQ" title="Previous quarter">&#8592;<span class="sr-only"> Previous quarter</span></button>
+        <button type="button" class="btn btn-sm" id="nextQ" title="Next quarter">&#8594;<span class="sr-only"> Next quarter</span></button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <div class="microwrap">
+        <div class="chart" id="microChart">
+          <div class="tip" id="tip" hidden></div>
+        </div>
+        <div class="detail" id="detail" role="region" aria-label="Event detail" tabindex="-1"></div>
+      </div>
+    </div>
+    <div class="keyline">
+      <span><span class="k">QE</span> quarter close</span>
+      <span><span class="k">+3d</span> posting period ends</span>
+      <span><span class="k">+7d</span> Community Report due</span>
+      <span><span class="k">+10d</span> verification window closes</span>
+      <span><span class="k">+17d</span> SWA_TIMELOCK expires</span>
+    </div>
+    <div class="panel-head" style="border-top:1px solid var(--border);border-bottom:0">
+      <div class="legend" id="actorLegend"></div>
+    </div>
+    <details class="disclose" id="eventsDisclose">
+      <summary>This quarter&rsquo;s events as a table</summary>
+      <div class="disclose-body tablewrap">
+        <table class="data" id="eventsTable">
+          <caption class="sr-only">Events in the selected quarter with actor, timing, description and source</caption>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <div class="cols2">
+    <section class="panel" aria-labelledby="caveatTitle">
+      <div class="panel-head"><h2 id="caveatTitle">Assumptions &amp; caveats</h2>
+        <span class="sub">What here is a planning assumption rather than protocol</span></div>
+      <div class="panel-body">
+        <ol class="caveats">
+          <li><strong>The activation date is an assumption.</strong> October 15, 2026 is a planning placeholder;
+            FIP-0118 names no specific activation date or epoch. Change it above and every date on this page moves with it.</li>
+          <li><strong>Quarter length is ~90 days here.</strong> Actual length is set by <code>EPOCHS_PER_QUARTER</code>, so real
+            quarter boundaries will drift from these dates.</li>
+          <li><strong>The 3-day posting period, 7-day verification window and 7-day SWA_TIMELOCK are proposed
+            governance-repo values</strong>, not parameters of the FIP. Of the three, only SWA_TIMELOCK is enforced at L1.</li>
+          <li><strong>The Community Report deadline (7 days after quarter close)</strong> comes from governance repo doc 04
+            and overlaps the verification window.</li>
+          <li><strong>PR #1279 (transparency rules) was in Draft as of August 2026.</strong> The genesis disclosure and
+            Community Report obligations shown here depend on it merging.</li>
+          <li><strong>Ordering within the post-verification window is indicative.</strong> Events after QE+10d
+            (dashed outlines) are drawn in dependency order; the FIP sets no per-step deadline between QE+10d and the
+            timelock expiry.</li>
+          <li><strong>w2 steps are drawn at the quarter boundary.</strong> In practice a passing gate is written to f02 after
+            QE+10d and only takes effect when SWA_TIMELOCK expires, roughly QE+17d.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="standingTitle">
+      <div class="panel-head"><h2 id="standingTitle">Standing obligations</h2>
+        <span class="sub">Continuous, not quarter-bound</span></div>
+      <div class="panel-body" style="padding:0">
+        <div class="tablewrap">
+          <table class="data" id="standingTable">
+            <caption class="sr-only">Continuous obligations that are not bound to a quarter</caption>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  </main>
+
+  <div class="footnote">
+    <span>Sources: FIP-0118 (as of Aug 2026); Solstice-Governance docs 02, 03, 04; PR #1279 (Draft).</span>
+    <span>Gate targets: $3,500 &times; 2.7<sup>n</sup>, n = (w2 &minus; 10%) / 5%.</span>
+    <span id="permalinkWrap"><button type="button" class="btn btn-sm btn-ghost" id="permalink">Copy link to this scenario</button></span>
+  </div>
+</div>
+
+<script>
+/* ==================== MODEL START ====================
+   Pure, DOM-free model. tests/model.test.mjs slices this block out of
+   index.html and asserts it against the FIP-0118 weight schedule, so keep
+   it free of any browser globals.
+   ===================================================== */
+"use strict";
+
+const DAY_MS = 86400000;
+const QUARTER_DAYS = 90;          // planning approximation of EPOCHS_PER_QUARTER
+const N_QUARTERS = 9;
+const TERMINAL_DAYS = 90;         // how much of the terminal state we draw
+
+const W1_START = 0.95;            // consensus weight at activation
+const W1_FLOOR = 0.50;            // terminal consensus weight
+const W1_PER_QUARTER = 0.05;      // continuous ramp, 5pp per quarter
+const W2_BOOTSTRAP = 0.05;        // service weight at activation
+const W2_BASE = 0.10;             // service weight entering Q2
+const W2_STEP = 0.05;             // step per passed gate
+const W2_TERMINAL = 0.50;
+
+/* Volume gate ladder, fixed at FIP time: $3,500 x 2.7^n, n = (w2 - 10%) / 5% */
+const GATES = [
+  { n: 1, from: 0.10, to: 0.15, target: 3500 },
+  { n: 2, from: 0.15, to: 0.20, target: 9450 },
+  { n: 3, from: 0.20, to: 0.25, target: 25515 },
+  { n: 4, from: 0.25, to: 0.30, target: 68891 },
+  { n: 5, from: 0.30, to: 0.35, target: 186005 },
+  { n: 6, from: 0.35, to: 0.40, target: 502213 },
+  { n: 7, from: 0.40, to: 0.45, target: 1355976 },
+  { n: 8, from: 0.45, to: 0.50, target: 3661135 }
+];
+
+/* Proposed governance-repo windows, in days after quarter end (QE) */
+const POSTING_DAYS = 3;                              // PostVolume window
+const VERIFY_DAYS = 7;                               // verification window
+const VERIFY_END = POSTING_DAYS + VERIFY_DAYS;       // 10
+const REPORT_DUE = 7;                                // Community Report deadline
+const TIMELOCK_DAYS = 7;                             // SWA_TIMELOCK hold
+const TIMELOCK_END = VERIFY_END + TIMELOCK_DAYS;     // 17
+
+const r6 = v => Math.round(v * 1e6) / 1e6;
+
+/* Consensus weight at a day offset from activation: linear, then flat. */
+function w1AtDay(day) {
+  const v = W1_START - W1_PER_QUARTER * (day / QUARTER_DAYS);
+  return r6(Math.min(W1_START, Math.max(W1_FLOOR, v)));
+}
+
+/* Interpolate the service weight in force at a day offset. */
+function w2AtDay(day, scenario) {
+  if (day <= 0) return W2_BOOTSTRAP;
+  for (const q of scenario.quarters) {
+    if (day <= q.endDay) {
+      if (!q.bootstrap) return q.w2Start;
+      const t = (day - q.startDay) / QUARTER_DAYS;
+      return r6(q.w2Start + t * (q.w2End - q.w2Start));
+    }
+  }
+  return scenario.terminal.w2;
+}
+
+function weightsAtDay(day, scenario) {
+  if (!Number.isFinite(day)) day = 0;
+  const w1 = w1AtDay(day);
+  const w2 = w2AtDay(day, scenario);
+  return { w1, w2, w0: r6(Math.max(0, 1 - w1 - w2)) };
+}
+
+/*
+  Build a full scenario from 8 gate outcomes.
+
+  passes[i] is the outcome of the gate check run at the CLOSE of quarter i+2
+  (Q1 runs no gate check). Which gate that check attempts is not the quarter
+  number: the ladder is keyed to the service weight, so a failed check
+  re-attempts the same target the following quarter and nothing is skipped.
+*/
+function computeScenario(passes) {
+  const quarters = [];
+  let w2 = null;        // service weight in force during the quarter
+  let gateIdx = 0;      // next rung of the ladder to attempt
+  let lastIdx = -1;     // rung attempted at the previous gated close
+  let attempt = 0;      // consecutive closes that have attempted that rung
+
+  for (let k = 1; k <= N_QUARTERS; k++) {
+    const q = {
+      n: k,
+      bootstrap: k === 1,
+      startDay: (k - 1) * QUARTER_DAYS,
+      endDay: k * QUARTER_DAYS,
+      w1Start: w1AtDay((k - 1) * QUARTER_DAYS),
+      w1End: w1AtDay(k * QUARTER_DAYS)
+    };
+    if (q.bootstrap) {
+      // Service mirrors 1 - w1 through the bootstrap quarter, so nothing burns.
+      q.w2Start = W2_BOOTSTRAP;
+      q.w2End = W2_BASE;
+    } else {
+      q.w2Start = q.w2End = w2;
+    }
+    q.w0Start = r6(Math.max(0, 1 - q.w1Start - q.w2Start));
+    q.w0End = r6(Math.max(0, 1 - q.w1End - q.w2End));
+
+    if (q.bootstrap) {
+      q.gate = null;
+      q.gateState = 'bootstrap';
+    } else if (gateIdx >= GATES.length) {
+      // Unreachable with 8 rungs across 8 gated closes. Kept as a guard so
+      // that changing N_QUARTERS or the ladder cannot produce a w2 above 50%.
+      q.gate = null;
+      q.gateState = 'terminal';
+    } else {
+      const g = GATES[gateIdx];
+      const passed = passes[k - 2] !== false;
+      attempt = gateIdx === lastIdx ? attempt + 1 : 1;
+      lastIdx = gateIdx;
+      q.gate = { n: g.n, target: g.target, from: g.from, to: g.to, passed, attempt };
+      q.gateState = passed ? 'pass' : 'fail';
+    }
+    quarters.push(q);
+
+    if (q.bootstrap) w2 = W2_BASE;
+    else if (q.gate && q.gate.passed) { w2 = r6(w2 + W2_STEP); gateIdx++; }
+  }
+
+  const terminal = {
+    day: N_QUARTERS * QUARTER_DAYS,
+    w1: W1_FLOOR,
+    w2,
+    w0: r6(Math.max(0, 1 - W1_FLOOR - w2)),
+    gatesPassed: gateIdx,
+    gatesRemaining: GATES.length - gateIdx,
+    nextGate: gateIdx < GATES.length ? GATES[gateIdx] : null,
+    isBestCase: w2 === W2_TERMINAL
+  };
+  return { quarters, terminal };
+}
+
+/* Vertices for the stacked bands. Count is constant across scenarios so the
+   chart can tween between them. */
+function bandVertices(scenario) {
+  const v = [];
+  for (const q of scenario.quarters) {
+    v.push({ day: q.startDay, w1: q.w1Start, w2: q.w2Start });
+    v.push({ day: q.endDay, w1: q.w1End, w2: q.w2End });
+  }
+  const t = scenario.terminal;
+  v.push({ day: t.day, w1: t.w1, w2: t.w2 });
+  v.push({ day: t.day + TERMINAL_DAYS, w1: t.w1, w2: t.w2 });
+  return v;
+}
+
+const TOTAL_DAYS = N_QUARTERS * QUARTER_DAYS + TERMINAL_DAYS;
+
+/* ---------- actors ---------- */
+const ACTORS = {
+  protocol:      { label: 'Protocol / f02 (L1)', short: 'Protocol', color: 'var(--a-protocol)' },
+  orchestrator:  { label: 'Orchestrator',        short: 'Orchestrator', color: 'var(--a-orch)' },
+  sra:           { label: 'SRA Governance',      short: 'SRA Gov', color: 'var(--a-sra)' },
+  swa:           { label: 'SWA Governance',      short: 'SWA Gov', color: 'var(--a-swa)' },
+  permissionless:{ label: 'Permissionless',      short: 'Permissionless', color: 'var(--a-perm)' },
+  gate:          { label: 'Volume Gate',         short: 'Volume Gate', color: 'var(--a-gate)' }
+};
+const LANE_ORDER = ['protocol', 'orchestrator', 'sra', 'swa', 'permissionless', 'gate'];
+
+/* ---------- dates ---------- */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function parseISODate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+  if (!m) return null;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  if (!Number.isFinite(ms)) return null;
+  // Round-trip so two-digit-year mapping (0026 -> 1926) and calendar rollover
+  // (2027-02-29 -> Mar 1) are rejected instead of silently honoured.
+  return toISODate(ms) === m[0] ? ms : null;
+}
+function toISODate(ms) {
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate());
+}
+function dayMs(activationMs, day) { return activationMs + Math.round(day) * DAY_MS; }
+function fmtLong(ms)  { const d = new Date(ms); return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear(); }
+function fmtShort(ms) { const d = new Date(ms); return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate(); }
+function fmtTick(ms)  { const d = new Date(ms); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2); }
+function fmtRange(activationMs, d0, d1) {
+  const a = dayMs(activationMs, d0), b = dayMs(activationMs, d1);
+  const sameYear = new Date(a).getUTCFullYear() === new Date(b).getUTCFullYear();
+  return (sameYear ? fmtShort(a) : fmtLong(a)) + ' – ' + fmtLong(b);
+}
+const fmtUSD = n => '$' + n.toLocaleString('en-US');
+const fmtPct = v => { const x = Math.round(v * 1000) / 10; return (Number.isInteger(x) ? x.toFixed(0) : x.toFixed(1)) + '%'; };
+
+/* ---------- events ---------- */
+/*
+  Every event carries: lane actor, layout days (start/end from activation),
+  the relative-timing phrase from the spec, a description, a source pointer,
+  and `indicative` when its position inside the post-verification window is
+  drawn in dependency order rather than to a stated deadline.
+*/
+function eventsForQuarter(q, scenario, activationMs) {
+  const QE = q.endDay;
+  const ev = [];
+  const at = d => fmtLong(dayMs(activationMs, d));
+  const span = (d0, d1) => fmtRange(activationMs, d0, d1);
+
+  if (q.bootstrap) {
+    ev.push({
+      id: 'genesis-disclosure', actor: 'sra', name: 'Genesis Orchestrator disclosure', kind: 'milestone',
+      start: 0, end: 0, rel: 'By activation', when: at(0),
+      desc: 'Registry Safes publish the genesis Orchestrator disclosure before the mechanism goes live.',
+      source: 'Gov repo 04; depends on PR #1279 (Draft as of Aug 2026)', oneTime: true
+    });
+    ev.push({
+      id: 'genesis-seating', actor: 'protocol', name: 'Genesis Orchestrator seated', kind: 'milestone',
+      start: 0, end: 0, rel: 'At activation', when: at(0),
+      desc: 'State migration seats the genesis Orchestrator. Datacap is deprecated, 10x QAP applies, and the split starts at w1 = 95%, w2 = 5%, w0 = 0%.',
+      source: 'FIP-0118 (state migration)', oneTime: true
+    });
+    ev.push({
+      id: 'declaration', actor: 'orchestrator', name: 'Publish declaration file', kind: 'bar',
+      start: 0, end: 7, rel: 'Within 7 days of activation', when: span(0, 7),
+      desc: 'Genesis Orchestrator publishes its declaration file in the governance repo. It must be kept current thereafter.',
+      source: 'Gov repo 03, 04', oneTime: true
+    });
+    ev.push({
+      id: 'register-pairs', actor: 'orchestrator', name: 'RegisterPairs', kind: 'bar',
+      start: 2, end: 12, rel: 'Before first settlement', when: 'Before the first settlement (no fixed date)',
+      desc: 'Register (payer, operator) pairs so settlement events can be bound to the Orchestrator.',
+      source: 'FIP-0118 (RegisterPairs)', oneTime: true, indicative: true
+    });
+  }
+
+  ev.push({
+    id: 'post-volume', actor: 'orchestrator', name: 'PostVolume', kind: 'bar',
+    start: QE, end: QE + POSTING_DAYS, rel: 'QE → QE+3d', when: span(QE, QE + POSTING_DAYS),
+    desc: 'Post the FPV components — stablecoin USD plus the FIL per-period vector — to the SRA. One post, and only inside the posting period.',
+    source: 'FIP-0118; posting period (3d) proposed in Gov repo 02'
+  });
+  ev.push({
+    id: 'verification', actor: 'sra', name: 'Verification window', kind: 'bar',
+    start: QE + POSTING_DAYS, end: QE + VERIFY_END, rel: 'QE+3d → QE+10d', when: span(QE + POSTING_DAYS, QE + VERIFY_END),
+    desc: 'SRA Governance recomputes the FPV from public settlement events using the reference indexer, and calls CorrectVolume for any misreport or missing figure.',
+    source: 'FIP-0118; verification window (7d) proposed in Gov repo 02, 03', deps: ['post-volume']
+  });
+  ev.push({
+    id: 'self-monitor', actor: 'orchestrator', name: 'Self-monitor & reconcile', kind: 'bar',
+    start: QE + POSTING_DAYS, end: QE + VERIFY_END, rel: 'QE+3d → QE+10d', when: span(QE + POSTING_DAYS, QE + VERIFY_END),
+    desc: 'Orchestrator recomputes its own FPV, reconciles it against the posted figure, and flags discrepancies proactively rather than waiting to be caught.',
+    source: 'Gov repo 03 (Orchestrator obligations)', deps: ['post-volume']
+  });
+  ev.push({
+    id: 'community-report', actor: 'orchestrator', name: 'Community Report due', kind: 'milestone',
+    start: QE + REPORT_DUE, end: QE + REPORT_DUE, rel: 'By QE+7d', when: at(QE + REPORT_DUE),
+    desc: 'File the quarterly report in the governance repo. A binary obligation: missing the deadline or omitting required fields opens a public issue, with 7 days to remedy before removal is triggered.',
+    source: 'Gov repo 04; depends on PR #1279 (Draft as of Aug 2026)', flag: 'deadline'
+  });
+  ev.push({
+    id: 'finalize', actor: 'permissionless', name: 'FinalizeConversion', kind: 'bar',
+    start: QE + VERIFY_END, end: QE + VERIFY_END + 1.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: 'Converts bound FIL volumes to USD at qualifying fee-auction prints. Idempotent, and auto-triggered by the first consumer that needs the result.',
+    source: 'FIP-0118 (FinalizeConversion)', deps: ['verification'], indicative: true
+  });
+  ev.push({
+    id: 'submit-shares', actor: 'permissionless', name: 'SubmitShares', kind: 'bar',
+    start: QE + VERIFY_END + 2.1, end: QE + VERIFY_END + 3.9, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: 'Computes the Orchestrator share via SplitRule and writes the wallet-to-share map to f02 through SetShares.',
+    source: 'FIP-0118 (SplitRule, SetShares)', deps: ['finalize'], indicative: true
+  });
+
+  if (q.gate) {
+    const g = q.gate;
+    const retry = g.attempt > 1 ? ' This is attempt ' + g.attempt + ' at the same target.' : '';
+    ev.push({
+      id: 'gate-check', actor: 'permissionless', name: 'QuarterlyGateCheck', kind: 'bar',
+      start: QE + VERIFY_END + 4.2, end: QE + VERIFY_END + 5.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+      desc: 'Tests whether AggregatedFPV \u2265 ' + fmtUSD(g.target) + ', the target for gate ' + g.n
+        + ' (the step from w2 ' + fmtPct(g.from) + ' to ' + fmtPct(g.to) + ').' + retry
+        + ' If it clears, the SWA writes the new w2 to f02.',
+      source: 'FIP-0118 (volume gate); target = $3,500 \u00d7 2.7^' + (g.n - 1),
+      deps: ['finalize'], indicative: true
+    });
+    ev.push({
+      id: 'gate-outcome', actor: 'gate',
+      name: 'Gate ' + g.n + ' \u00b7 ' + fmtUSD(g.target) + ' \u00b7 ' + (g.passed ? 'clears' : 'missed'), kind: 'bar',
+      start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END, rel: 'Outcome in this scenario',
+      when: g.passed ? 'Takes effect ' + at(QE + TIMELOCK_END) : 'No effect at this close',
+      desc: (g.passed
+        ? 'In this scenario the quarter clears ' + fmtUSD(g.target) + ', so w2 steps from ' + fmtPct(g.from) + ' to ' + fmtPct(g.to) + '.'
+        : 'In this scenario the quarter falls short of ' + fmtUSD(g.target) + ', so w2 holds at ' + fmtPct(g.from)
+          + ', the gap burns instead, and the same target is re-attempted at the next close \u2014 the ladder never skips a rung.')
+        + (g.attempt > 1 ? ' Attempt ' + g.attempt + ' at this rung.' : ''),
+      source: 'Scenario setting, not protocol \u2014 flip it here or in the Scenario panel',
+      deps: ['gate-check'], indicative: true, gate: g, toggle: q.n
+    });
+  } else {
+    ev.push({
+      id: 'gate-none', actor: 'gate', name: q.bootstrap ? 'No gate check at this close' : 'No rung left to attempt', kind: 'note',
+      start: QE + VERIFY_END + 4.2, end: QE + TIMELOCK_END, rel: 'n/a', when: '\u2014',
+      desc: q.bootstrap
+        ? 'The bootstrap quarter runs no QuarterlyGateCheck. w2 enters Q2 at 10% by construction, not by clearing a gate.'
+        : 'w2 has already reached its terminal 50%, so there is no further rung to attempt.',
+      source: 'FIP-0118'
+    });
+  }
+
+  ev.push({
+    id: 'confirm-pipeline', actor: 'sra', name: 'Confirm pipeline ran', kind: 'bar',
+    start: QE + VERIFY_END + 3.0, end: QE + VERIFY_END + 6.2, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: 'SRA Governance verifies that FinalizeConversion, SubmitShares and the gate check have run, and checks the integrity of the wallet-to-share map.',
+    source: 'Gov repo 03 (SRA duties)', deps: ['submit-shares'], indicative: true
+  });
+  ev.push({
+    id: 'confirm-mechanism', actor: 'swa', name: 'Confirm mechanism write', kind: 'bar',
+    start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: q.gate && q.gate.passed
+      ? 'The gate cleared, so SWA Governance confirms the queued w2 write matches the gate rule. The write is non-cancellable once queued.'
+      : (q.bootstrap
+          ? 'The bootstrap quarter runs no gate check, so no w2 write is ever queued at this close.'
+          : 'The gate was missed in this scenario, so no w2 write is queued and there is nothing to confirm. The Safe still monitors the f02 queue.'),
+    source: 'Gov repo 03, 04 (SWA duties)', deps: q.gate ? ['gate-check'] : [], indicative: true,
+    muted: !(q.gate && q.gate.passed)
+  });
+  ev.push({
+    id: 'timelock', actor: 'protocol', name: 'SWA_TIMELOCK expires', kind: 'milestone',
+    start: QE + TIMELOCK_END, end: QE + TIMELOCK_END, rel: '~QE+17d', when: at(QE + TIMELOCK_END),
+    desc: q.gate && q.gate.passed
+      ? 'The new w2 of ' + fmtPct(q.gate.to) + ' takes effect at f02. The 7-day hold is for visibility only — mechanism writes cannot be cancelled during it.'
+      : 'Nothing takes effect at this close: no w2 write was queued. The hold exists for visibility on writes that are queued.',
+    source: 'FIP-0118 (f02, SWA_TIMELOCK); 7-day hold proposed in Gov repo', deps: ['confirm-mechanism'],
+    muted: !(q.gate && q.gate.passed)
+  });
+
+  return ev;
+}
+
+const STANDING = [
+  { actor: 'orchestrator', what: 'Respond to disputes', trigger: 'Within 7 days of request' },
+  { actor: 'orchestrator', what: 'Rotate wallets if compromised', trigger: 'On compromise detection' },
+  { actor: 'orchestrator', what: 'Keep declaration file current', trigger: 'Ongoing' },
+  { actor: 'sra', what: 'Dispute resolution', trigger: 'Within 7 days of contested binding' },
+  { actor: 'sra', what: 'Exception-based investigation', trigger: 'On anomaly or community report' },
+  { actor: 'sra', what: 'Maintain stablecoin whitelist, Filecoin Pay contracts, pricing params', trigger: 'As needed' },
+  { actor: 'sra', what: 'Maintain reference indexer', trigger: 'Ongoing' },
+  { actor: 'swa', what: 'Monitor f02 queue during TIMELOCK holds', trigger: 'During any active hold' },
+  { actor: 'swa', what: 'Keep Safe rosters and disclosures current', trigger: 'Ongoing' }
+];
+
+const DEFAULT_ACTIVATION = '2026-10-15';
+
+const MODEL = {
+  DAY_MS, QUARTER_DAYS, N_QUARTERS, TERMINAL_DAYS, TOTAL_DAYS,
+  W1_START, W1_FLOOR, W2_BOOTSTRAP, W2_BASE, W2_STEP, W2_TERMINAL,
+  GATES, POSTING_DAYS, VERIFY_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_DAYS, TIMELOCK_END,
+  ACTORS, LANE_ORDER, STANDING, DEFAULT_ACTIVATION,
+  w1AtDay, w2AtDay, weightsAtDay, computeScenario, bandVertices, eventsForQuarter,
+  parseISODate, toISODate, dayMs, fmtLong, fmtShort, fmtTick, fmtRange, fmtUSD, fmtPct
+};
+/* ==================== MODEL END ==================== */
+
+/* ==================== VIEW ==================== */
+const NS = 'http://www.w3.org/2000/svg';
+const root = document.documentElement;
+const $ = id => document.getElementById(id);
+const TERMINAL_SLOT = N_QUARTERS + 1;   // the 10th chip
+
+function el(name, attrs, kids) {
+  const n = document.createElementNS(NS, name);
+  if (attrs) for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  if (kids) for (const c of [].concat(kids)) if (c) n.appendChild(c);
+  return n;
+}
+function txt(x, y, s, cls, attrs) {
+  const t = el('text', Object.assign({ x, y, class: cls || null }, attrs || {}));
+  t.textContent = s;
+  return t;
+}
+function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+function tag(name, cls, content) {
+  const n = document.createElement(name);
+  if (cls) n.className = cls;
+  if (content != null) n.textContent = content;
+  return n;
+}
+const isDark = () => getComputedStyle(root).colorScheme.trim() === 'dark'
+  || root.dataset.theme === 'dark'
+  || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+
+/* Resolve CSS custom properties to concrete values so SVG fills can carry
+   alpha without relying on color-mix support. */
+function palette() {
+  const cs = getComputedStyle(root);
+  const get = k => cs.getPropertyValue(k).trim();
+  const keys = ['--w1','--w1-fill','--w1-edge','--w2','--w2-fill','--w2-edge','--w0','--w0-fill','--w0-edge',
+    '--plot-bg','--border-axis','--pass-line','--fail-line',
+    '--a-protocol','--a-orch','--a-sra','--a-swa','--a-perm','--a-gate',
+    '--pass','--fail','--na','--text','--text-2','--text-3','--border','--border-strong',
+    '--panel','--raised','--accent'];
+  const out = {};
+  for (const k of keys) out[k] = get(k);
+  out.actor = {
+    protocol: out['--a-protocol'], orchestrator: out['--a-orch'], sra: out['--a-sra'],
+    swa: out['--a-swa'], permissionless: out['--a-perm'], gate: out['--a-gate']
+  };
+  return out;
+}
+/* WCAG relative luminance, used to pick black-or-white ink over a known fill. */
+function lum(hex) {
+  const h = hex.replace('#', '');
+  const n = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const v = parseInt(n, 16);
+  if (!Number.isFinite(v)) return 1;
+  const c = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map(x => {
+    x /= 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+/* 0.19 is where black and white ink hit the same ratio, so this always
+   picks the better of the two. */
+const inkOn = hex => (lum(hex) > 0.19 ? '#12151a' : '#f7f9fb');
+
+function rgba(hex, a) {
+  const h = hex.replace('#', '');
+  const n = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const v = parseInt(n, 16);
+  if (!Number.isFinite(v)) return hex;
+  return 'rgba(' + ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255) + ',' + a + ')';
+}
+
+/* ---------- state ---------- */
+const state = {
+  activationMs: parseISODate(DEFAULT_ACTIVATION),
+  passes: new Array(GATES.length).fill(true),
+  selected: 1,
+  microRange: 'act',
+  pinned: null,
+  scenario: null,
+  view: { d0: 0, d1: TOTAL_DAYS }     // visible slice of the time axis
+};
+
+/* Pan and zoom act on the time axis only; the weight axis is always 0-100%.
+   Drag listeners live on the document because each pan re-renders (and so
+   replaces) the SVG the gesture started on. */
+let macroBox = null, macroDrag = null, macroSwallowClick = false;
+function setView(d0, d1) {
+  const span = Math.min(TOTAL_DAYS, Math.max(30, d1 - d0));
+  let lo = d0, hi = d0 + span;
+  if (lo < 0) { lo = 0; hi = span; }
+  if (hi > TOTAL_DAYS) { hi = TOTAL_DAYS; lo = hi - span; }
+  state.view = { d0: lo, d1: hi };
+  const full = lo <= 0.01 && hi >= TOTAL_DAYS - 0.01;
+  $('zoomReset').hidden = full;
+  renderMacro();
+}
+function onPanMove(ev) {
+  if (!macroDrag || !macroBox) return;
+  const dxPx = ev.clientX - macroDrag.x;
+  if (Math.abs(dxPx) > 3) macroDrag.moved = true;
+  if (!macroDrag.moved) return;
+  const span = macroDrag.d1 - macroDrag.d0;
+  const shift = -dxPx / (macroBox.x1 - macroBox.x0) * span;
+  setView(macroDrag.d0 + shift, macroDrag.d1 + shift);
+}
+function onPanEnd() {
+  macroSwallowClick = !!(macroDrag && macroDrag.moved);
+  macroDrag = null;
+  document.removeEventListener('pointermove', onPanMove);
+  document.removeEventListener('pointerup', onPanEnd);
+  document.removeEventListener('pointercancel', onPanEnd);
+}
+const scale = () => (root.dataset.density === 'large' ? 1.16 : 1);
+const qDate = day => dayMs(state.activationMs, day);
+
+function recompute() { state.scenario = computeScenario(state.passes); }
+
+/* Every re-render replaces the control that was just activated, so focus has
+   to be put back deliberately or the user lands on <body>. */
+function refocus(sel) {
+  const n = document.querySelector(sel);
+  if (n && !n.disabled) n.focus({ preventScroll: true });
+}
+/* One polite live region, written to only by deliberate user actions. */
+function announce(msg) { $('statusLive').textContent = msg; }
+function scenarioSentence() {
+  const t = state.scenario.terminal;
+  return t.gatesPassed + ' of ' + GATES.length + ' gates clear. From ' + fmtLong(qDate(t.day))
+    + ': w1 ' + fmtPct(t.w1) + ', w2 ' + fmtPct(t.w2) + ', w0 ' + fmtPct(t.w0) + '.';
+}
+const peakBurn = () => Math.max.apply(null, state.scenario.quarters.map(q => q.w0End));
+
+/* ---------- URL state ---------- */
+function writeURL() {
+  const g = state.passes.map(p => (p ? '1' : '0')).join('');
+  const h = '#q=' + state.selected + '&d=' + toISODate(state.activationMs) + '&g=' + g;
+  try { history.replaceState(null, '', location.pathname + location.search + h); } catch (e) { /* file:// */ }
+}
+function readURL() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('embed') === '1') root.dataset.embed = '1';
+  const th = params.get('theme');
+  if (th === 'dark' || th === 'light') root.dataset.theme = th;
+  if (params.get('density') === 'projector') root.dataset.density = 'large';
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const d = parseISODate(h.get('d'));
+  if (d != null) state.activationMs = d;
+  const g = h.get('g');
+  if (g && /^[01]{8}$/.test(g)) {
+    for (let i = 0; i < GATES.length; i++) state.passes[i] = g[i] !== '0';
+  }
+  const q = parseInt(h.get('q'), 10);
+  if (q >= 1 && q <= TERMINAL_SLOT) {
+    state.selected = q;
+    state.microRange = q === 1 ? 'act' : 'eoq';
+  }
+}
+
+/* ---------- quarter chips ---------- */
+function renderStrip() {
+  const host = $('strip');
+  clear(host);
+  const sc = state.scenario;
+  for (const q of sc.quarters) {
+    const b = tag('button', 'chip');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(state.selected === q.n));
+    if (state.selected === q.n) b.setAttribute('aria-current', 'true');
+    b.dataset.q = q.n;
+
+    const top = tag('div', 'chip-top');
+    top.appendChild(tag('span', 'chip-q', 'Q' + q.n));
+    const gs = tag('span', 'chip-gate');
+    if (q.gate) {
+      gs.classList.add(q.gate.passed ? 'is-pass' : 'is-fail');
+      gs.textContent = (q.gate.passed ? '✓' : '✕') + ' G' + q.gate.n + (q.gate.attempt > 1 ? '·' + q.gate.attempt : '');
+      gs.title = 'Gate ' + q.gate.n + ' — ' + fmtUSD(q.gate.target) + ' — '
+        + (q.gate.passed ? 'clears' : 'missed') + ' at this quarter’s close'
+        + (q.gate.attempt > 1 ? ' (attempt ' + q.gate.attempt + ' at the same target)' : '');
+    } else {
+      gs.classList.add('is-na');
+      gs.textContent = q.bootstrap ? 'no gate' : 'w2 max';
+      gs.title = q.bootstrap ? 'No gate check at the close of the bootstrap quarter' : 'w2 already at its terminal 50%';
+    }
+    top.appendChild(gs);
+    b.appendChild(top);
+    b.appendChild(tag('div', 'chip-dates', fmtShort(qDate(q.startDay)) + ' – ' + fmtShort(qDate(q.endDay))));
+    b.appendChild(tag('div', 'chip-w2', q.bootstrap
+      ? 'w2 ' + fmtPct(q.w2Start) + '→' + fmtPct(q.w2End)
+      : 'w2 ' + fmtPct(q.w2Start)));
+    b.style.borderLeftColor = 'var(--' + (q.gate ? (q.gate.passed ? 'pass' : 'fail') : 'na') + ')';
+    host.appendChild(b);
+  }
+
+  const t = state.scenario.terminal;
+  const b = tag('button', 'chip');
+  b.type = 'button';
+  b.setAttribute('aria-pressed', String(state.selected === TERMINAL_SLOT));
+  if (state.selected === TERMINAL_SLOT) b.setAttribute('aria-current', 'true');
+  b.dataset.q = TERMINAL_SLOT;
+  const top = tag('div', 'chip-top');
+  top.appendChild(tag('span', 'chip-q', 'Terminal'));
+  const gs = tag('span', 'chip-gate ' + (t.isBestCase ? 'is-pass' : 'is-fail'));
+  gs.textContent = t.gatesPassed + '/' + GATES.length;
+  gs.title = t.gatesPassed + ' of ' + GATES.length + ' gates clear';
+  gs.setAttribute('aria-label', t.gatesPassed + ' of ' + GATES.length + ' gates clear');
+  top.appendChild(gs);
+  b.appendChild(top);
+  b.appendChild(tag('div', 'chip-dates', 'from ' + fmtShort(qDate(t.day))));
+  b.appendChild(tag('div', 'chip-w2', 'w2 ' + fmtPct(t.w2)));
+  b.style.borderLeftColor = 'var(--' + (t.isBestCase ? 'pass' : 'fail') + ')';
+  host.appendChild(b);
+}
+
+/* ---------- scenario sidebar ---------- */
+function renderSidebar() {
+  const sc = state.scenario, t = sc.terminal;
+  const s = $('summary');
+  clear(s);
+  s.appendChild(tag('div', 'summary-label', t.isBestCase ? 'Terminal state' : 'State at end of modelled window'));
+  s.appendChild(tag('div', 'summary-date', fmtLong(qDate(t.day))));
+
+  const rows = [
+    ['w1', 'consensus', t.w1, 'var(--w1-fill)', 'var(--w1)'],
+    ['w2', 'service', t.w2, 'var(--w2-fill)', 'var(--w2)'],
+    ['w0', 'burn', t.w0, 'var(--w0-fill)', 'var(--w0)']
+  ];
+  for (const [k, sub, v, fill, line] of rows) {
+    const r = tag('div', 'wrow');
+    const sw = tag('span', 'swatch');
+    sw.style.background = fill;
+    sw.style.outline = '1px solid ' + line;
+    r.appendChild(sw);
+    const kk = tag('span', 'k');
+    kk.appendChild(tag('strong', null, k));
+    kk.appendChild(document.createTextNode(' '));
+    kk.appendChild(tag('small', null, sub));
+    r.appendChild(kk);
+    r.appendChild(tag('span', 'v', fmtPct(v)));
+    s.appendChild(r);
+  }
+  const note = tag('div', 'summary-note' + (t.isBestCase ? '' : ' is-warn'));
+  note.textContent = t.isBestCase
+    ? 'Best case: all ' + GATES.length + ' gates clear, and nothing burns at the terminal split.'
+    : t.gatesPassed + ' of ' + GATES.length + ' gates clear. w2 holds at ' + fmtPct(t.w2) + ', so ' + fmtPct(t.w0)
+      + ' burns at the end of the window and burn peaks at ' + fmtPct(peakBurn()) + ' inside it — best case peaks at 5%. '
+      + t.gatesRemaining + ' gate' + (t.gatesRemaining === 1 ? '' : 's')
+      + ' unresolved; closes keep running quarterly past the window drawn here, next target '
+      + fmtUSD(t.nextGate.target) + '.';
+  s.appendChild(note);
+
+  const list = $('gatelist');
+  clear(list);
+  for (const q of sc.quarters) {
+    if (q.bootstrap) continue;
+    const row = tag('div', 'gaterow' + (state.selected === q.n ? ' is-current' : '') + (q.gate ? '' : ' is-moot'));
+    if (state.selected === q.n) row.setAttribute('aria-current', 'true');
+    const main = tag('div', 'gaterow-main');
+    const top = tag('div', 'gaterow-top');
+    top.appendChild(tag('span', 'gaterow-q', 'Q' + q.n + ' close'));
+    top.appendChild(tag('span', 'gaterow-date', fmtShort(qDate(q.endDay)) + ', ' + new Date(qDate(q.endDay)).getUTCFullYear()));
+    main.appendChild(top);
+    const det = tag('div', 'gaterow-detail');
+    if (q.gate) {
+      det.appendChild(tag('span', null, 'Gate ' + q.gate.n + ' · '));
+      if (q.gate.attempt > 1) {
+        det.appendChild(tag('span', 'gaterow-attempt', 'attempt ' + q.gate.attempt + ' · '));
+      }
+      det.appendChild(tag('span', 'tgt', fmtUSD(q.gate.target)));
+      det.appendChild(tag('span', 'arrow', ' → w2 ' + fmtPct(q.gate.to)));
+    } else {
+      det.textContent = 'w2 at terminal 50% — no check';
+    }
+    main.appendChild(det);
+    row.appendChild(main);
+
+    const lbl = tag('span', 'switch-label ' + (state.passes[q.n - 2] ? 'is-pass' : 'is-fail'),
+      q.gate ? (state.passes[q.n - 2] ? 'clears' : 'missed') : '—');
+    lbl.id = 'gatelbl-' + q.n;
+    row.appendChild(lbl);
+
+    const sw = tag('button', 'switch');
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', String(!!state.passes[q.n - 2]));
+    sw.setAttribute('aria-describedby', lbl.id);
+    sw.dataset.gate = q.n;
+    sw.disabled = !q.gate;
+    /* Static name: the state lives in aria-checked, so it must not be
+       repeated here or AT announces it twice and re-reads on every flip. */
+    sw.setAttribute('aria-label', q.gate
+      ? 'Gate ' + q.gate.n + ' at the Q' + q.n + ' close, target ' + fmtUSD(q.gate.target)
+        + (q.gate.attempt > 1 ? ', attempt ' + q.gate.attempt : '')
+      : 'No gate check at the Q' + q.n + ' close');
+    row.appendChild(sw);
+    list.appendChild(row);
+  }
+
+  /* Rungs the window never gets to are still part of the ladder — say so
+     rather than letting them vanish off the bottom of the list. */
+  const lastQ = sc.quarters[N_QUARTERS - 1];
+  const lastN = lastQ.gate ? lastQ.gate.n : GATES.length;
+  for (const g of GATES) {
+    if (g.n <= lastN) continue;
+    const row = tag('div', 'gaterow is-unreached');
+    const main = tag('div', 'gaterow-main');
+    const top = tag('div', 'gaterow-top');
+    top.appendChild(tag('span', 'gaterow-q', 'Gate ' + g.n));
+    top.appendChild(tag('span', 'gaterow-date', 'not reached'));
+    main.appendChild(top);
+    const det = tag('div', 'gaterow-detail');
+    det.appendChild(tag('span', 'tgt', fmtUSD(g.target)));
+    det.appendChild(tag('span', 'arrow', ' → w2 ' + fmtPct(g.to) + ' — beyond the 9 quarters shown'));
+    main.appendChild(det);
+    row.appendChild(main);
+    list.appendChild(row);
+  }
+}
+
+/* ---------- tables ---------- */
+function cell(row, text, cls) {
+  const td = tag('td', cls || null);
+  if (text instanceof Node) td.appendChild(text); else td.textContent = text;
+  row.appendChild(td);
+  return td;
+}
+function headRow(table, cols) {
+  const thead = tag('thead'), tr = tag('tr');
+  for (const c of cols) {
+    const th = tag('th', c.cls || null, c.label);
+    th.scope = 'col';
+    tr.appendChild(th);
+  }
+  thead.appendChild(tr);
+  table.appendChild(thead);
+}
+function renderScheduleTable() {
+  const table = $('scheduleTable');
+  const cap = table.querySelector('caption');
+  clear(table);
+  if (cap) table.appendChild(cap);
+  headRow(table, [
+    { label: 'Quarter', cls: 'tl' }, { label: 'Dates', cls: 'tl' },
+    { label: 'w1 start' }, { label: 'w1 end' }, { label: 'w2' },
+    { label: 'w0 start' }, { label: 'w0 end' },
+    { label: 'Gate at close', cls: 'tl' }, { label: 'Target' }, { label: 'Outcome', cls: 'tl' }
+  ]);
+  const tb = tag('tbody');
+  for (const q of state.scenario.quarters) {
+    const tr = tag('tr', state.selected === q.n ? 'is-sel' : null);
+    if (state.selected === q.n) tr.setAttribute('aria-current', 'true');
+    cell(tr, 'Q' + q.n + (q.bootstrap ? ' (bootstrap)' : ''), 'tl');
+    cell(tr, fmtShort(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay)), 'tl');
+    cell(tr, fmtPct(q.w1Start), 'n');
+    cell(tr, fmtPct(q.w1End), 'n');
+    cell(tr, q.bootstrap ? fmtPct(q.w2Start) + '→' + fmtPct(q.w2End) : fmtPct(q.w2Start), 'n');
+    cell(tr, fmtPct(q.w0Start), 'n');
+    cell(tr, fmtPct(q.w0End), 'n');
+    cell(tr, q.gate ? 'Gate ' + q.gate.n + (q.gate.attempt > 1 ? ' (attempt ' + q.gate.attempt + ')' : '') : '—', 'tl');
+    cell(tr, q.gate ? fmtUSD(q.gate.target) : '—', 'n');
+    const out = tag('span', q.gate ? (q.gate.passed ? 'state-pass' : 'state-fail') : 'state-na',
+      q.gate ? (q.gate.passed ? 'clears → w2 ' + fmtPct(q.gate.to) : 'missed → w2 holds at ' + fmtPct(q.gate.from))
+             : (q.bootstrap ? 'no check (bootstrap)' : 'no check (w2 at max)'));
+    cell(tr, out, 'tl');
+    tb.appendChild(tr);
+  }
+  const t = state.scenario.terminal;
+  const tr = tag('tr', state.selected === TERMINAL_SLOT ? 'is-sel' : null);
+  cell(tr, 'Terminal', 'tl');
+  cell(tr, 'from ' + fmtLong(qDate(t.day)), 'tl');
+  cell(tr, fmtPct(t.w1), 'n'); cell(tr, fmtPct(t.w1), 'n');
+  cell(tr, fmtPct(t.w2), 'n');
+  cell(tr, fmtPct(t.w0), 'n'); cell(tr, fmtPct(t.w0), 'n');
+  cell(tr, '—', 'tl'); cell(tr, '—', 'n');
+  cell(tr, tag('span', t.isBestCase ? 'state-pass' : 'state-fail',
+    t.gatesPassed + ' of ' + GATES.length + ' gates clear'), 'tl');
+  tb.appendChild(tr);
+  table.appendChild(tb);
+}
+function renderEventsTable(events) {
+  const table = $('eventsTable');
+  const cap = table.querySelector('caption');
+  clear(table);
+  if (cap) table.appendChild(cap);
+  headRow(table, [
+    { label: 'Actor', cls: 'tl' }, { label: 'Event', cls: 'tl' }, { label: 'Timing', cls: 'tl' },
+    { label: 'Dates', cls: 'tl' }, { label: 'What happens', cls: 'tl' }, { label: 'Source', cls: 'tl' }
+  ]);
+  const tb = tag('tbody');
+  for (const e of events) {
+    const tr = tag('tr');
+    cell(tr, ACTORS[e.actor].label, 'tl');
+    cell(tr, e.name, 'tl');
+    cell(tr, e.rel + (e.indicative ? ' (indicative order)' : ''), 'tl');
+    cell(tr, e.when, 'tl').style.whiteSpace = 'normal';
+    cell(tr, e.desc, 'tl').style.whiteSpace = 'normal';
+    cell(tr, e.source, 'tl').style.whiteSpace = 'normal';
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+}
+function renderStandingTable() {
+  const table = $('standingTable');
+  const cap = table.querySelector('caption');
+  clear(table);
+  if (cap) table.appendChild(cap);
+  headRow(table, [{ label: 'Obligation', cls: 'tl' }, { label: 'Trigger', cls: 'tl' }]);
+  const tb = tag('tbody');
+  for (const s of STANDING) {
+    const tr = tag('tr');
+    const td = cell(tr, '', 'tl');
+    const dot = tag('span', 'swatch');
+    dot.style.cssText = 'display:inline-block;background:' + ACTORS[s.actor].color + ';margin-right:6px;vertical-align:middle';
+    td.appendChild(dot);
+    td.appendChild(document.createTextNode(s.what));
+    td.style.whiteSpace = 'normal';
+    td.title = ACTORS[s.actor].label;
+    cell(tr, s.trigger, 'tl').style.whiteSpace = 'normal';
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+}
+function renderActorLegend() {
+  const host = $('actorLegend');
+  clear(host);
+  for (const k of LANE_ORDER) {
+    const item = tag('span', 'legend-item');
+    const sw = tag('span', 'swatch');
+    sw.style.background = rgba(palette().actor[k], isDark() ? 0.34 : 0.2);
+    sw.style.outline = '1px solid ' + ACTORS[k].color;
+    item.appendChild(sw);
+    item.appendChild(document.createTextNode(ACTORS[k].label));
+    host.appendChild(item);
+  }
+  const note = tag('span', 'legend-item');
+  note.style.color = 'var(--text-3)';
+  note.innerHTML = '<span class="swatch" style="border:1px dashed var(--text-3);background:transparent"></span> dashed = order indicative, no stated deadline';
+  host.appendChild(note);
+}
+
+/* ---------- macro: stacked weight bands ---------- */
+const prefersReduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let macroApply = null, macroShown = null, macroRAF = 0;
+
+function macroAltText() {
+  const t = state.scenario.terminal;
+  const failed = [];
+  for (const q of state.scenario.quarters) if (q.gate && !q.gate.passed) failed.push('Q' + q.n);
+  return 'Stacked area chart of the block-reward split from ' + fmtLong(qDate(0)) + ' to ' + fmtLong(qDate(TOTAL_DAYS)) + '. '
+    + 'The consensus weight w1 ramps continuously from 95% down to 50% by ' + fmtLong(qDate(N_QUARTERS * QUARTER_DAYS)) + '. '
+    + 'The service weight w2 starts at 5%, reaches 10% by the end of the bootstrap quarter, then steps up 5 points at each quarter close whose volume gate passes. '
+    + 'Burn w0 takes whatever w1 and w2 leave, so inside each quarter it climbs 5 points and drops back whenever w2 steps up. '
+    + 'Across this scenario burn peaks at ' + fmtPct(Math.max.apply(null, state.scenario.quarters.map(q => q.w0End))) + '. '
+    + (failed.length
+        ? 'The gate is missed at ' + failed.join(', ') + ', so w2 holds there and burn grows. '
+        : 'Every gate clears in this scenario. ')
+    + 'State from ' + fmtLong(qDate(t.day)) + ': w1 ' + fmtPct(t.w1) + ', w2 ' + fmtPct(t.w2) + ', w0 ' + fmtPct(t.w0)
+    + '. The same numbers are in the weight schedule table below the chart.';
+}
+
+function renderMacro(opts) {
+  opts = opts || {};
+  const host = $('macroChart');
+  const readout = $('readout');
+  const prev = host.querySelector('svg');
+  if (prev) prev.remove();
+  cancelAnimationFrame(macroRAF);
+
+  const sc = state.scenario;
+  const S = scale();
+  const w = Math.max(340, host.clientWidth || 900);
+  let h = Math.round(Math.max(252, Math.min(430, window.innerHeight * 0.33)) * (S > 1 ? 1.06 : 1));
+  /* In the two-column layout the scenario sidebar is the taller element, so
+     grow the chart into that space instead of leaving a hole under it. */
+  const side = document.querySelector('.col-side');
+  if (side && window.innerWidth > 1180) {
+    h = Math.round(Math.max(h, Math.min(540, side.offsetHeight - Math.round(112 * (S > 1 ? 1.12 : 1)))));
+  }
+  const pad = { t: Math.round(34 * S), r: 16, b: Math.round(48 * S), l: Math.round(44 * S) };
+  const x0 = pad.l, x1 = w - pad.r, y0 = h - pad.b, y1 = pad.t;
+  const V = state.view;
+  const X = d => x0 + ((d - V.d0) / (V.d1 - V.d0)) * (x1 - x0);
+  const Y = v => y0 - v * (y0 - y1);
+  const inView = x => x >= x0 - 0.5 && x <= x1 + 0.5;
+  macroBox = { x0, x1, y0, y1 };
+  const P = palette();
+  const fs = Math.round(11 * S);
+
+  const svg = el('svg', { width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, 'aria-hidden': 'true' });
+  svg.style.fontSize = fs + 'px';
+  $('macroAlt').textContent = macroAltText();
+  $('macroCaption').textContent =
+    'Read the bands bottom up: consensus, then service, then burn. w1 falls continuously on a fixed schedule, '
+    + 'while w2 only steps up at a close whose gate clears — so burn takes whatever is left, climbing 5 points '
+    + 'through each quarter and dropping back whenever w2 steps. Burn peaks at ' + fmtPct(peakBurn())
+    + ' in this scenario' + (sc.terminal.isBestCase ? ', which is the best case.' : ' (best case: 5%).');
+  $('macroRange').textContent = fmtLong(qDate(V.d0)) + ' – ' + fmtLong(qDate(V.d1))
+    + (V.d1 - V.d0 < TOTAL_DAYS - 0.5 ? ' · zoomed' : ' · assumed activation');
+
+  /* plot frame */
+  svg.appendChild(el('rect', { x: x0, y: y1, width: x1 - x0, height: y0 - y1, fill: P['--plot-bg'], stroke: P['--border'] }));
+
+  /* Burn is hatched, not just coloured, so a failed gate still reads as a
+     failure in greyscale, in a projector photo, and to a colourblind reader. */
+  const pat = el('pattern', { id: 'burn-hatch', width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+  pat.appendChild(el('line', { x1: 0, y1: 0, x2: 0, y2: 6, stroke: P['--w0-edge'], 'stroke-width': 1.7, 'stroke-opacity': 0.55 }));
+  const clip = el('clipPath', { id: 'plot-clip' });
+  clip.appendChild(el('rect', { x: x0, y: y1, width: x1 - x0, height: y0 - y1 }));
+  svg.appendChild(el('defs', null, [pat, clip]));
+
+  /* y grid */
+  const gGrid = el('g');
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    const y = Y(v);
+    if (v > 0) gGrid.appendChild(el('line', { x1: x0, x2: x1, y1: y, y2: y, class: 'grid-line' }));
+    gGrid.appendChild(txt(x0 - 7, y + 3.5, Math.round(v * 100) + (v === 1 ? '%' : ''), 'tick', { 'text-anchor': 'end', 'font-size': fs }));
+  }
+  svg.appendChild(gGrid);
+
+  /* bands */
+  const verts = bandVertices(sc);
+  const fW1 = el('path', { class: 'band band-w1', fill: P['--w1-fill'], stroke: 'none' });
+  const fW2 = el('path', { class: 'band band-w2', fill: P['--w2-fill'], stroke: 'none' });
+  const fW0 = el('path', { class: 'band band-w0', fill: P['--w0-fill'], stroke: 'none' });
+  const hW0 = el('path', { fill: 'url(#burn-hatch)', stroke: 'none' });
+  const lW1 = el('path', { fill: 'none', stroke: P['--w1-edge'], 'stroke-width': 1.5 * S });
+  const lW2 = el('path', { fill: 'none', stroke: P['--w2-edge'], 'stroke-width': 1.5 * S });
+  const gBands = el('g', { 'clip-path': 'url(#plot-clip)' }, [fW1, fW2, fW0, hW0, lW1, lW2]);
+  svg.appendChild(gBands);
+
+  const up = (vs, f) => vs.map(v => X(v.day).toFixed(2) + ',' + Y(f(v)).toFixed(2));
+  const down = (vs, f) => vs.slice().reverse().map(v => X(v.day).toFixed(2) + ',' + Y(f(v)).toFixed(2));
+  const F0 = () => 0, F1 = v => v.w1, F12 = v => v.w1 + v.w2, FT = () => 1;
+  macroApply = vs => {
+    fW1.setAttribute('d', 'M' + up(vs, F1).join('L') + 'L' + down(vs, F0).join('L') + 'Z');
+    fW2.setAttribute('d', 'M' + up(vs, F12).join('L') + 'L' + down(vs, F1).join('L') + 'Z');
+    const dw0 = 'M' + up(vs, FT).join('L') + 'L' + down(vs, F12).join('L') + 'Z';
+    fW0.setAttribute('d', dw0);
+    hW0.setAttribute('d', dw0);
+    lW1.setAttribute('d', 'M' + up(vs, F1).join('L'));
+    lW2.setAttribute('d', 'M' + up(vs, F12).join('L'));
+  };
+
+  /* quarter separators, labels, date ticks */
+  const gAxis = el('g');
+  const viewSpan = V.d1 - V.d0;
+  const qWidth = (x1 - x0) / (viewSpan / QUARTER_DAYS);
+  const tickEvery = Math.max(1, Math.ceil((62 * S + 10) / qWidth));
+  /* Zoomed in past a few quarters there may be no boundary in view at all, so
+     the axis switches to plain date ticks rather than going unlabelled. */
+  const labelBoundaries = viewSpan >= 2.5 * QUARTER_DAYS;
+  for (let k = 0; k <= N_QUARTERS; k++) {
+    const d = k * QUARTER_DAYS, x = X(d);
+    if (!inView(x)) continue;
+    gAxis.appendChild(el('line', { x1: x, x2: x, y1: y1, y2: y0, class: 'qsep', 'stroke-opacity': k === N_QUARTERS ? 0.9 : 0.5 }));
+    gAxis.appendChild(el('line', { x1: x, x2: x, y1: y0, y2: y0 + 4, class: 'axis-line' }));
+    if (labelBoundaries && (k % tickEvery === 0 || k === N_QUARTERS)) {
+      gAxis.appendChild(txt(x, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
+        { 'text-anchor': 'middle', 'font-size': Math.round(10.5 * S) }));
+    }
+  }
+  if (!labelBoundaries) {
+    const step = [1, 2, 3, 7, 14, 30, 60].find(v => viewSpan / v <= 9) || 90;
+    for (let d = Math.ceil(V.d0 / step) * step; d <= V.d1; d += step) {
+      const x = X(d);
+      if (!inView(x)) continue;
+      gAxis.appendChild(el('line', { x1: x, x2: x, y1: y0, y2: y0 + 4, class: 'axis-line' }));
+      gAxis.appendChild(txt(x, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
+        { 'text-anchor': 'middle', 'font-size': Math.round(10.5 * S) }));
+    }
+  }
+  /* Label the visible slice of each band, so a quarter you are zoomed inside
+     is still named even when its midpoint is off-screen. */
+  const qEvery = qWidth < 26 * S ? 2 : 1;
+  const slice = (a, b) => {
+    const lo = Math.max(x0, X(a)), hi = Math.min(x1, X(b));
+    return hi - lo > 26 * S ? (lo + hi) / 2 : null;
+  };
+  for (let k = 1; k <= N_QUARTERS; k++) {
+    const on = state.selected === k;
+    if (!on && (k - 1) % qEvery) continue;
+    const xm = slice((k - 1) * QUARTER_DAYS, k * QUARTER_DAYS);
+    if (xm == null) continue;
+    gAxis.appendChild(txt(xm, y0 + Math.round(14 * S), 'Q' + k, 'qlabel tick',
+      { 'text-anchor': 'middle', 'font-size': fs, fill: on ? P['--accent'] : null, 'font-weight': on ? 700 : null }));
+  }
+  const termOn = state.selected === TERMINAL_SLOT;
+  const termX = slice(N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS);
+  if (termX != null) gAxis.appendChild(txt(termX, y0 + Math.round(14 * S),
+    qWidth < 62 * S ? 'Term.' : 'Terminal', 'qlabel tick',
+    { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: termOn ? P['--accent'] : null, 'font-weight': termOn ? 700 : null }));
+  gAxis.appendChild(el('line', { x1: x0, x2: x1, y1: y0, y2: y0, class: 'axis-line' }));
+  svg.appendChild(gAxis);
+
+  /* Where the best case would have put the w2 ceiling, so the shortfall reads
+     as an area rather than a number. */
+  if (!sc.terminal.isBestCase) {
+    const best = bandVertices(computeScenario(new Array(GATES.length).fill(true)));
+    svg.appendChild(el('g', { 'clip-path': 'url(#plot-clip)' }, [el('path', {
+      fill: 'none', stroke: P['--w2'], 'stroke-width': 1.4 * S, 'stroke-dasharray': '5 4',
+      'stroke-opacity': 0.9, d: 'M' + up(best, F12).join('L'), 'pointer-events': 'none'
+    })]));
+  }
+  $('ghostLegend').hidden = sc.terminal.isBestCase;
+
+  /* hover + selection highlight (behind the interaction overlay) */
+  const gMarks0 = el('g', { 'clip-path': 'url(#plot-clip)' });
+  const hoverRect = el('rect', { class: 'qband', x: x0, y: y1, width: 0, height: y0 - y1, 'pointer-events': 'none' });
+  gMarks0.appendChild(hoverRect);
+  svg.appendChild(gMarks0);
+  const selSpan = state.selected <= N_QUARTERS
+    ? [sc.quarters[state.selected - 1].startDay, sc.quarters[state.selected - 1].endDay]
+    : [N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS];
+  const gSel = el('g', { 'clip-path': 'url(#plot-clip)' });
+  gSel.appendChild(el('rect', {
+    class: 'qband-sel', x: X(selSpan[0]) + 0.75, y: y1 + 0.75, width: X(selSpan[1]) - X(selSpan[0]) - 1.5, height: y0 - y1 - 1.5,
+    'pointer-events': 'none', 'stroke-width': 1.5
+  }));
+  gSel.appendChild(el('rect', {
+    class: 'qband-tab', x: X(selSpan[0]) + 0.75, y: y1, width: X(selSpan[1]) - X(selSpan[0]) - 1.5, height: 3,
+    'pointer-events': 'none'
+  }));
+  svg.appendChild(gSel);
+
+  /* band value labels at the terminal end */
+  const edge = weightsAtDay(V.d1, sc);
+  const endLabels = [
+    [edge.w1 / 2, 'w1 ' + fmtPct(edge.w1), P['--w1-fill'], edge.w1],
+    [edge.w1 + edge.w2 / 2, 'w2 ' + fmtPct(edge.w2), P['--w2-fill'], edge.w2],
+    [edge.w1 + edge.w2 + edge.w0 / 2, 'w0 ' + fmtPct(edge.w0), P['--w0-fill'], edge.w0]
+  ];
+  for (const [mid, label, fill, thick] of endLabels) {
+    if (Math.abs(Y(thick) - Y(0)) < 17 * S) continue;
+    const tx = txt(x1 - 6, Y(mid) + 4, label, null,
+      { 'text-anchor': 'end', 'font-size': fs, 'font-weight': 650, fill: inkOn(fill) });
+    tx.setAttribute('paint-order', 'stroke');
+    tx.setAttribute('stroke', fill);
+    tx.setAttribute('stroke-width', 3.5);
+    svg.appendChild(tx);
+  }
+
+  /* crosshair + interaction overlay */
+  /* Two-tone crosshair: one dark hair, one light. A single tone cannot clear
+     3:1 against all three bands at once. */
+  const xhB = el('line', { class: 'xh-line', x1: 0, x2: 0, y1: y1, y2: y0, opacity: 0, stroke: P['--panel'], 'stroke-dasharray': 'none' });
+  const xh = el('line', { class: 'xh-line', x1: 0, x2: 0, y1: y1, y2: y0, opacity: 0, stroke: P['--text'], 'stroke-dasharray': 'none' });
+  svg.appendChild(xhB);
+  svg.appendChild(xh);
+  const overlay = el('rect', { x: x0, y: y1, width: x1 - x0, height: y0 - y1, fill: 'transparent', style: 'cursor:pointer' });
+  svg.appendChild(overlay);
+
+  const dayFromEvent = ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left;
+    return Math.max(0, Math.min(TOTAL_DAYS, V.d0 + ((mx - x0) / (x1 - x0)) * (V.d1 - V.d0)));
+  };
+  const slotFor = day => (day >= N_QUARTERS * QUARTER_DAYS ? TERMINAL_SLOT : Math.min(N_QUARTERS, Math.floor(day / QUARTER_DAYS) + 1));
+
+  const onMove = ev => {
+    const day = dayFromEvent(ev);
+    const wts = weightsAtDay(day, sc);
+    const px = X(day);
+    xh.setAttribute('x1', px); xh.setAttribute('x2', px); xh.setAttribute('opacity', 1);
+    xhB.setAttribute('x1', px + 1); xhB.setAttribute('x2', px + 1); xhB.setAttribute('opacity', 1);
+    const slot = slotFor(day);
+    const span = slot <= N_QUARTERS ? [sc.quarters[slot - 1].startDay, sc.quarters[slot - 1].endDay] : [N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS];
+    hoverRect.setAttribute('x', X(span[0]));
+    hoverRect.setAttribute('width', X(span[1]) - X(span[0]));
+    hoverRect.setAttribute('class', 'qband');
+    hoverRect.setAttribute('fill', rgba(P['--text'], 0.045));
+
+    clear(readout);
+    readout.appendChild(tag('div', 'readout-date', fmtLong(qDate(day))));
+    const sub = tag('div', 'readout-row');
+    sub.style.cssText = 'color:var(--text-3);font-size:.9em;margin:-3px 0 4px';
+    sub.textContent = slot <= N_QUARTERS ? 'Q' + slot + ' · day ' + Math.round(day - span[0]) + ' of ' + QUARTER_DAYS : 'Terminal state';
+    readout.appendChild(sub);
+    const lines = [['w1 consensus', wts.w1, P['--w1-fill'], P['--w1']], ['w2 service', wts.w2, P['--w2-fill'], P['--w2']], ['w0 burn', wts.w0, P['--w0-fill'], P['--w0']]];
+    for (const [k, v, fill, line] of lines) {
+      const r = tag('div', 'readout-row');
+      const kk = tag('span', 'k');
+      const sw = tag('span', 'swatch');
+      sw.style.background = fill; sw.style.outline = '1px solid ' + line;
+      kk.appendChild(sw); kk.appendChild(document.createTextNode(k));
+      r.appendChild(kk);
+      r.appendChild(tag('span', 'v', fmtPct(v)));
+      readout.appendChild(r);
+    }
+    readout.hidden = false;
+    const hostRect = host.getBoundingClientRect();
+    const rw = readout.offsetWidth, rh = readout.offsetHeight;
+    let lx = px + 14, ly = Math.max(4, Math.min(hostRect.height - rh - 4, ev.clientY - hostRect.top - rh / 2));
+    if (lx + rw > hostRect.width - 4) lx = px - rw - 14;
+    readout.style.left = Math.max(4, lx) + 'px';
+    readout.style.top = ly + 'px';
+  };
+  const clearHover = () => {
+    readout.hidden = true;
+    xh.setAttribute('opacity', 0);
+    xhB.setAttribute('opacity', 0);
+    hoverRect.setAttribute('width', 0);
+  };
+  /* Pointer events rather than mouse events, so the readout also works on a
+     touch display in a meeting room. */
+  overlay.addEventListener('pointermove', onMove);
+  overlay.addEventListener('pointerdown', onMove);
+  overlay.addEventListener('pointerup', ev => { if (ev.pointerType !== 'mouse') clearHover(); });
+  overlay.addEventListener('pointerleave', clearHover);
+  overlay.addEventListener('pointercancel', clearHover);
+  overlay.addEventListener('click', ev => {
+    if (macroSwallowClick) { macroSwallowClick = false; return; }
+    setSelected(slotFor(dayFromEvent(ev)));
+  });
+  overlay.addEventListener('dblclick', () => setView(0, TOTAL_DAYS));
+  overlay.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    macroDrag = { x: ev.clientX, d0: V.d0, d1: V.d1, moved: false };
+    document.addEventListener('pointermove', onPanMove);
+    document.addEventListener('pointerup', onPanEnd);
+    document.addEventListener('pointercancel', onPanEnd);
+  });
+  /* Plain wheel is left to the page: hijacking it makes a long page unusable.
+     Pinch (which arrives as ctrl+wheel) and shift+wheel drive the axis. */
+  overlay.addEventListener('wheel', ev => {
+    const zoom = ev.ctrlKey || ev.metaKey;
+    if (!zoom && !ev.shiftKey) return;
+    ev.preventDefault();
+    const span = V.d1 - V.d0;
+    if (zoom) {
+      const at = dayFromEvent(ev);
+      const k = Math.exp((ev.deltaY || 0) * 0.0025);
+      setView(at - (at - V.d0) * k, at + (V.d1 - at) * k);
+    } else {
+      const shift = ((ev.deltaX || ev.deltaY || 0) / (x1 - x0)) * span;
+      setView(V.d0 + shift, V.d1 + shift);
+    }
+  }, { passive: false });
+
+  /* gate markers */
+  const gMarks = el('g');
+  for (const q of sc.quarters) {
+    if (!q.gate) continue;
+    const x = X(q.endDay);
+    if (!inView(x)) continue;
+    const pass = q.gate.passed;
+    const col = pass ? P['--pass'] : P['--fail'];
+    const rim = pass ? P['--pass-line'] : P['--fail-line'];
+    const g = el('g', { class: 'gm' });
+    g.appendChild(el('line', { x1: x, x2: x, y1: y1 - 2, y2: y0, class: 'gm-line', stroke: rim, 'stroke-width': 1.4 * S }));
+    const bw = Math.round(34 * S), bh = Math.round(17 * S);
+    /* A 34x17 badge is well under any sane touch target, so give it a real
+       hit area without changing how it looks. */
+    g.appendChild(el('rect', { class: 'hit', x: x - 22 * S, y: y1 - bh - 12, width: 44 * S, height: bh + 18 }));
+    g.appendChild(el('rect', {
+      class: 'gm-badge', x: x - bw / 2, y: y1 - bh - 6, width: bw, height: bh, rx: 4,
+      fill: isDark() ? rgba(col, 0.2) : rgba(col, 0.1), stroke: rim
+    }));
+    g.appendChild(txt(x, y1 - 6 - bh / 2 + 4, (pass ? '✓' : '✕') + ' G' + q.gate.n, 'gm-text',
+      { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: col }));
+    const ttl = el('title');
+    ttl.textContent = 'Q' + q.n + ' close · gate ' + q.gate.n + ' · ' + fmtUSD(q.gate.target) + ' · '
+      + (pass ? 'passes, w2 steps to ' + fmtPct(q.gate.to) : 'fails, w2 holds at ' + fmtPct(q.gate.from))
+      + ' — click to flip';
+    g.appendChild(ttl);
+    g.addEventListener('click', e => { e.stopPropagation(); toggleGate(q.n); });
+    gMarks.appendChild(g);
+  }
+  svg.appendChild(gMarks);
+
+  host.insertBefore(svg, readout);
+
+  if (opts.animate && macroShown && macroShown.length === verts.length && !prefersReduced()) {
+    const from = macroShown, t0 = performance.now(), dur = 280;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      macroApply(verts.map((v, i) => ({ day: v.day, w1: from[i].w1 + (v.w1 - from[i].w1) * e, w2: from[i].w2 + (v.w2 - from[i].w2) * e })));
+      if (k < 1) macroRAF = requestAnimationFrame(step);
+    };
+    macroRAF = requestAnimationFrame(step);
+  } else {
+    macroApply(verts);
+  }
+  macroShown = verts;
+}
+
+/* ---------- micro: end-of-quarter swim lanes ---------- */
+function packLanes(events, pxPerDay, charW) {
+  const lanes = LANE_ORDER.map(k => ({ key: k, rows: [] }));
+  const byKey = {};
+  lanes.forEach(l => { byKey[l.key] = l; });
+  /* An event occupies its bar plus the room its label needs, so a label can
+     always sit beside its own bar instead of being pushed onto a neighbour. */
+  const eff = e => {
+    const s = e.kind === 'bar' ? e.start : e.start - 1.1;
+    const en = e.kind === 'bar' ? e.end : e.start + 1.1;
+    const labelPx = e.name.length * charW;
+    const fitsInside = e.kind === 'bar' && (e.end - e.start) * pxPerDay - 14 >= labelPx;
+    const labelDays = (e.kind === 'note' || fitsInside) ? 0 : (labelPx + 10) / pxPerDay;
+    return [s, en + labelDays];
+  };
+  for (const e of events) {
+    const lane = byKey[e.actor] || byKey.permissionless;
+    const [s, en] = eff(e);
+    let row = lane.rows.findIndex(r => r.every(o => { const [os, oe] = eff(o); return s >= oe - 0.05 || en <= os + 0.05; }));
+    if (row < 0) { lane.rows.push([]); row = lane.rows.length - 1; }
+    lane.rows[row].push(e);
+    e._row = row;
+  }
+  return lanes;
+}
+
+function rangeOptions(q) {
+  const opts = [];
+  if (q.bootstrap) opts.push(['act', 'Activation']);
+  opts.push(['eoq', 'Quarter close']);
+  opts.push(['full', 'Full quarter']);
+  return opts;
+}
+function renderRangeSeg(q) {
+  const host = $('rangeSeg');
+  clear(host);
+  host.hidden = !q;
+  if (!q) return;
+  for (const [key, label] of rangeOptions(q)) {
+    const b = tag('button', null, label);
+    b.type = 'button';
+    b.dataset.range = key;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(state.microRange === key));
+    b.setAttribute('aria-pressed', String(state.microRange === key));
+    host.appendChild(b);
+  }
+}
+
+function renderMicro() {
+  const host = $('microChart');
+  const tip = $('tip');
+  const prev = host.querySelector('svg');
+  if (prev) prev.remove();
+  const oldCard = host.querySelector('.termcard');
+  if (oldCard) oldCard.remove();
+  tip.hidden = true;
+
+  const sc = state.scenario;
+  $('prevQ').disabled = state.selected <= 1;
+  $('nextQ').disabled = state.selected >= TERMINAL_SLOT;
+  $('eventsDisclose').hidden = state.selected > N_QUARTERS;
+  if (state.selected > N_QUARTERS) {
+    renderRangeSeg(null);
+    renderTerminalCard(host);
+    renderEventsTable([]);
+    return;
+  }
+
+  const q = sc.quarters[state.selected - 1];
+  /* Coerce the range only when the current one cannot apply, so stepping
+     through quarters keeps the view the user chose. */
+  if (state.microRange === 'act' && !q.bootstrap) state.microRange = 'eoq';
+  renderRangeSeg(q);
+
+  const allEvents = eventsForQuarter(q, sc, state.activationMs);
+  renderEventsTable(allEvents);
+
+  const S = scale(), P = palette(), dark = isDark();
+  const QE = q.endDay;
+  let d0, d1;
+  if (state.microRange === 'act') { d0 = q.startDay - 2; d1 = q.startDay + 21; }
+  else if (state.microRange === 'full') { d0 = q.startDay - 1; d1 = QE + TIMELOCK_END + 4; }
+  else { d0 = QE - 2; d1 = QE + TIMELOCK_END + 4; }
+
+  state.depNames = {};
+  for (const e of allEvents) state.depNames[e.id] = e.name;
+  const events = allEvents.filter(e => e.end >= d0 - 0.01 && e.start <= d1 + 0.01);
+  const offscreen = allEvents.length - events.length;
+
+  const rangeName = { act: 'activation', eoq: 'end-of-quarter cycle', full: 'full quarter' }[state.microRange];
+  $('microTitle').textContent = 'Q' + q.n + (q.bootstrap ? ' (bootstrap)' : '') + ' — ' + rangeName;
+  $('microSub').textContent = 'Quarter ' + q.n + ' of ' + N_QUARTERS + ' · runs ' + fmtLong(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay))
+    + ' · close cycle ends ' + fmtLong(qDate(q.endDay + TIMELOCK_END))
+    + (q.gate ? ' · gate ' + q.gate.n + ' at ' + fmtUSD(q.gate.target) : '')
+    + (offscreen ? ' · ' + offscreen + ' event' + (offscreen === 1 ? '' : 's') + ' outside this range' : '');
+
+  const w = Math.max(320, host.clientWidth || 780);
+  const gutter = Math.round(Math.min(160, Math.max(92, w * 0.17)) * S);
+  const padT = Math.round(34 * S), padB = Math.round(28 * S), padR = Math.round(16 * S);
+  const rowH = Math.round(27 * S), lanePad = Math.round(5 * S);
+  const fs = Math.round(11 * S);
+  const charW = fs * 0.55;
+  const X = d => gutter + ((d - d0) / (d1 - d0)) * (w - gutter - padR);
+
+  const lanes = packLanes(events, (w - gutter - padR) / (d1 - d0), charW);
+  let y = padT;
+  for (const lane of lanes) {
+    lane.top = y;
+    lane.h = Math.max(1, lane.rows.length) * rowH + lanePad * 2;
+    y += lane.h;
+  }
+  const plotBottom = y;
+  const h = plotBottom + padB;
+
+  const svg = el('svg', {
+    width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, role: 'group',
+    'aria-label': 'Q' + q.n + ' ' + rangeName + ': ' + events.length + ' events across ' + LANE_ORDER.length + ' actor lanes'
+  });
+  svg.style.fontSize = fs + 'px';
+
+  /* lane bands + labels */
+  const gLanes = el('g', { 'aria-hidden': 'true' });
+  lanes.forEach((lane, i) => {
+    if (i % 2 === 0) gLanes.appendChild(el('rect', { x: 0, y: lane.top, width: w, height: lane.h, fill: rgba(P['--text'], 0.028) }));
+    gLanes.appendChild(el('line', { x1: 0, x2: w, y1: lane.top, y2: lane.top, class: 'lane-sep' }));
+    const cy = lane.top + lane.h / 2;
+    gLanes.appendChild(el('rect', { x: 8, y: cy - 6, width: 4, height: 12, rx: 1.5, fill: ACTORS[lane.key].color }));
+    const wide = gutter > 126 * S;
+    gLanes.appendChild(txt(18, cy + 3.5, wide ? ACTORS[lane.key].label : ACTORS[lane.key].short, 'lane-label',
+      { 'font-size': fs, fill: P['--text-2'] }));
+  });
+  gLanes.appendChild(el('line', { x1: 0, x2: w, y1: plotBottom, y2: plotBottom, class: 'lane-sep' }));
+  gLanes.appendChild(el('line', { x1: gutter, x2: gutter, y1: padT - 6, y2: plotBottom, class: 'lane-sep' }));
+  svg.appendChild(gLanes);
+
+  /* deadline guides — thinned so labels never collide */
+  const gGuides = el('g', { 'aria-hidden': 'true' });
+  let guides = [
+    [QE, 'QE', true, 'Quarter close'],
+    [QE + POSTING_DAYS, '+3d', false, 'Posting period ends, verification window opens'],
+    [QE + REPORT_DUE, '+7d', false, 'Community Report due'],
+    [QE + VERIFY_END, '+10d', false, 'Verification window closes'],
+    [QE + TIMELOCK_END, '+17d', false, 'SWA_TIMELOCK expires, a passing gate takes effect']
+  ];
+  if (state.microRange !== 'eoq') {
+    guides.unshift([q.startDay, q.bootstrap ? 'Activation' : 'Q' + q.n + ' opens', true, fmtLong(qDate(q.startDay))]);
+  }
+  guides = guides.filter(g => g[0] >= d0 && g[0] <= d1);
+  let lastLabelX = -1e9;
+  for (const [d, label, major, hint] of guides) {
+    const x = X(d);
+    gGuides.appendChild(el('line', { x1: x, x2: x, y1: padT - 6, y2: plotBottom, class: 'dl-line' + (major ? ' is-major' : '') }));
+    const need = label.length * charW * 0.5 + 8;
+    if (x - lastLabelX < need) continue;
+    lastLabelX = x + label.length * charW * 0.5;
+    const t = txt(x, padT - 12, label, 'dl-text', { 'text-anchor': 'middle', 'font-size': Math.round(10.5 * S) });
+    if (major) { t.setAttribute('fill', P['--accent']); t.setAttribute('font-weight', 700); }
+    const ttl = el('title'); ttl.textContent = hint; t.appendChild(ttl);
+    gGuides.appendChild(t);
+  }
+  svg.appendChild(gGuides);
+
+  /* x axis: dates, with the year shown on the first tick and whenever it rolls */
+  const gTicks = el('g', { 'aria-hidden': 'true' });
+  const span = d1 - d0;
+  const step = [1, 2, 3, 5, 7, 10, 14, 21, 30].find(v => span / v <= 11) || 30;
+  let lastYear = null, first = true, lastTickX = -1e9;
+  for (let d = Math.ceil(d0 / step) * step; d <= d1; d += step) {
+    const x = X(d);
+    if (x < gutter) continue;
+    const ms = qDate(d), yr = new Date(ms).getUTCFullYear();
+    const label = (first || yr !== lastYear) ? fmtShort(ms) + ', ' + yr : fmtShort(ms);
+    gTicks.appendChild(el('line', { x1: x, x2: x, y1: plotBottom, y2: plotBottom + 4, class: 'axis-line' }));
+    const half = label.length * charW * 0.5;
+    if (x - half - 6 < lastTickX) continue;
+    lastTickX = x + half;
+    first = false; lastYear = yr;
+    gTicks.appendChild(txt(x, plotBottom + Math.round(16 * S), label, 'tick',
+      { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: P['--text-3'] }));
+  }
+  svg.appendChild(gTicks);
+
+  /* quiet-stretch annotation */
+  if (state.microRange === 'full' && !q.bootstrap && X(QE) - X(q.startDay) > 260) {
+    svg.appendChild(txt((X(q.startDay) + X(QE)) / 2, padT + Math.round(18 * S),
+      'No quarter-bound events between the open and the close', null,
+      { 'text-anchor': 'middle', 'font-size': fs, fill: P['--text-3'], 'font-style': 'italic', 'aria-hidden': 'true' }));
+  }
+
+  /* geometry, clamped to the plot */
+  const box = {};
+  for (const lane of lanes) {
+    for (const e of lane.rows.flat()) {
+      const top = lane.top + lanePad + e._row * rowH;
+      const bh = rowH - Math.round(9 * S);
+      const cy = top + 3 + bh / 2;
+      if (e.kind === 'bar') {
+        const bx = Math.max(X(e.start) + 1, gutter + 1);
+        const bw = Math.max(5, Math.min(X(e.end) - 1, w - padR) - bx);
+        box[e.id] = { x: bx, y: top + 3, w: bw, h: bh, cy, x2: bx + bw, lx: bx, rx: bx + bw, dia: 0 };
+      } else {
+        const cx = Math.max(gutter + 6, Math.min(X(e.start), w - padR - 6));
+        const dia = e.kind === 'milestone' ? bh * 0.58 : 0;
+        box[e.id] = { x: cx, y: top + 3, w: 0, h: bh, cy, x2: cx, lx: cx - dia, rx: cx + dia, dia };
+      }
+    }
+  }
+
+  /* room to each side, so labels can never overwrite a neighbour */
+  const room = {};
+  for (const lane of lanes) {
+    for (const rowItems of lane.rows) {
+      const sorted = rowItems.slice().sort((a, b) => box[a.id].lx - box[b.id].lx);
+      sorted.forEach((e, i) => {
+        const before = sorted[i - 1], after = sorted[i + 1];
+        room[e.id] = {
+          left: before ? box[before.id].rx + 6 : gutter + 4,
+          right: after ? box[after.id].lx - 6 : w - padR
+        };
+      });
+    }
+  }
+
+  /* dependency links, under the bars */
+  const gDeps = el('g', { 'aria-hidden': 'true' });
+  for (const e of events) {
+    for (const dep of e.deps || []) {
+      const a = box[dep], b = box[e.id];
+      if (!a || !b) continue;
+      const ax = a.rx, bx = b.lx;
+      if (bx < ax - 2) continue;
+      const mx = ax + Math.max(5, (bx - ax) / 2);
+      gDeps.appendChild(el('path', { class: 'dep', d: 'M' + ax + ' ' + a.cy + 'H' + mx + 'V' + b.cy + 'H' + (bx - 4) }));
+      gDeps.appendChild(el('path', { class: 'dep-head', d: 'M' + (bx - 4.5) + ' ' + (b.cy - 3) + 'L' + bx + ' ' + b.cy + 'L' + (bx - 4.5) + ' ' + (b.cy + 3) + 'Z' }));
+    }
+  }
+  svg.appendChild(gDeps);
+
+  /* events */
+  const gEvents = el('g');
+  for (const e of events) {
+    const bx = box[e.id];
+    const col = ACTORS[e.actor].color;
+    const hex = P.actor[e.actor];
+    const isNote = e.kind === 'note';
+    const g = el('g', {
+      class: 'ev' + (e.indicative ? ' ev-indicative' : '') + (state.pinned === e.id ? ' is-sel' : ''),
+      tabindex: isNote ? null : '0',
+      role: isNote ? null : 'button',
+      /* Short name; the prose is the description, via the detail panel. */
+      'aria-label': isNote ? null : e.name + ', ' + ACTORS[e.actor].short + ', ' + e.rel,
+      'aria-describedby': isNote ? null : 'detail',
+      'aria-pressed': isNote ? null : String(state.pinned === e.id)
+    });
+    g.dataset.ev = e.id;
+
+    if (isNote) {
+      g.setAttribute('aria-hidden', 'true');
+      g.appendChild(txt(w - padR, bx.cy + 3.5, e.name, null,
+        { 'text-anchor': 'end', 'font-size': fs, fill: P['--text-3'], 'font-style': 'italic' }));
+      gEvents.appendChild(g);
+      continue;
+    }
+
+    if (e.kind === 'bar') {
+      g.appendChild(el('rect', {
+        class: 'ev-bar', x: bx.x, y: bx.y, width: bx.w, height: bx.h, rx: 3,
+        fill: rgba(hex, e.muted ? (dark ? 0.12 : 0.08) : (dark ? 0.3 : 0.17)),
+        stroke: col, 'stroke-opacity': e.muted ? 0.5 : 1, 'stroke-width': 1.3 * S
+      }));
+      g.appendChild(el('rect', { class: 'fring', x: bx.x - 3, y: bx.y - 3, width: bx.w + 6, height: bx.h + 6, rx: 5 }));
+      g.appendChild(el('rect', {
+        class: 'hit', x: bx.x - 2, y: bx.cy - Math.max(12, bx.h / 2 + 2),
+        width: Math.max(24, bx.w + 4), height: Math.max(24, bx.h + 4)
+      }));
+    } else {
+      const d = bx.dia;
+      g.appendChild(el('path', {
+        class: 'ev-bar',
+        d: 'M' + bx.x + ' ' + (bx.cy - d) + 'L' + (bx.x + d) + ' ' + bx.cy + 'L' + bx.x + ' ' + (bx.cy + d) + 'L' + (bx.x - d) + ' ' + bx.cy + 'Z',
+        fill: rgba(hex, e.muted ? (dark ? 0.16 : 0.1) : (dark ? 0.42 : 0.24)),
+        stroke: col, 'stroke-opacity': e.muted ? 0.5 : 1, 'stroke-width': 1.3 * S
+      }));
+      g.appendChild(el('rect', { class: 'fring', x: bx.x - d - 3, y: bx.cy - d - 3, width: (d + 3) * 2, height: (d + 3) * 2, rx: 4 }));
+      g.appendChild(el('rect', { class: 'hit', x: bx.x - 14, y: bx.cy - 14, width: 28, height: 28 }));
+    }
+
+    /* label: inside if it fits, else whichever side has room, else clipped, else dropped */
+    let label = e.name;
+    let tw = label.length * charW;
+    const rightRoom = room[e.id].right - (bx.rx + 7);
+    const leftRoom = (bx.lx - 7) - room[e.id].left;
+    let tx = null, anchor = 'start', inside = false;
+    if (e.kind === 'bar' && bx.w - 14 >= tw) { tx = bx.x + 7; inside = true; }
+    else if (rightRoom >= tw) { tx = bx.rx + 7; }
+    else if (leftRoom >= tw) { tx = bx.lx - 7; anchor = 'end'; }
+    else if (rightRoom >= 42) {
+      const keep = Math.max(3, Math.floor(rightRoom / charW) - 1);
+      label = label.slice(0, keep).replace(/[\s—-]+$/, '') + '…';
+      tw = label.length * charW;
+      tx = bx.rx + 7;
+    }
+    if (tx != null) {
+      const t = txt(tx, bx.cy + 3.6, label, 'ev-text', {
+        'text-anchor': anchor, 'font-size': fs, fill: e.muted ? P['--text-3'] : P['--text']
+      });
+      if (!inside) {
+        t.setAttribute('paint-order', 'stroke');
+        t.setAttribute('stroke', P['--panel']);
+        t.setAttribute('stroke-width', 3.5);
+      }
+      g.appendChild(t);
+    }
+
+    g.addEventListener('mouseenter', ev => { showTip(e, ev); if (!state.pinned) renderDetail(e, q); });
+    g.addEventListener('mousemove', ev => showTip(e, ev));
+    g.addEventListener('mouseleave', () => { tip.hidden = true; if (!state.pinned) renderDetail(null, q); });
+    g.addEventListener('focus', () => renderDetail(e, q));
+    const pin = () => {
+      state.pinned = state.pinned === e.id ? null : e.id;
+      renderMicro();
+      refocus('#microChart g.ev[data-ev="' + e.id + '"]');
+    };
+    g.addEventListener('click', pin);
+    g.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pin(); }
+    });
+    gEvents.appendChild(g);
+  }
+  svg.appendChild(gEvents);
+  host.insertBefore(svg, tip);
+
+  const pinned = events.find(e => e.id === state.pinned) || null;
+  if (state.pinned && !pinned) state.pinned = null;   // it lived in another quarter
+  renderDetail(pinned, q);
+}
+
+function showTip(e, ev) {
+  const tip = $('tip');
+  const host = $('microChart');
+  clear(tip);
+  tip.appendChild(tag('div', 'tip-title', e.name));
+  const who = tag('div', 'tip-when', ACTORS[e.actor].label);
+  who.style.color = ACTORS[e.actor].color;
+  tip.appendChild(who);
+  tip.appendChild(tag('div', 'tip-when', e.rel + ' · ' + e.when));
+  tip.appendChild(tag('div', 'tip-desc', e.desc));
+  const src = tag('div', 'tip-desc', 'Source: ' + e.source);
+  src.style.cssText = 'color:var(--text-3);font-size:.92em;margin-top:4px';
+  tip.appendChild(src);
+  tip.hidden = false;
+  const r = host.getBoundingClientRect();
+  let lx = ev.clientX - r.left + 14, ly = ev.clientY - r.top + 14;
+  if (lx + tip.offsetWidth > r.width - 6) lx = ev.clientX - r.left - tip.offsetWidth - 12;
+  if (ly + tip.offsetHeight > r.height - 6) ly = Math.max(4, ev.clientY - r.top - tip.offsetHeight - 12);
+  tip.style.left = Math.max(4, lx) + 'px';
+  tip.style.top = Math.max(4, ly) + 'px';
+}
+
+function renderDetail(e, q) {
+  const host = $('detail');
+  clear(host);
+  if (!e) {
+    const d = tag('div', 'detail-empty');
+    d.textContent = 'Hover, tab to, or click any event for what it is, who does it, and where it comes from.';
+    host.appendChild(d);
+    if (q) host.appendChild(glancePanel(q));
+    return;
+  }
+  const a = ACTORS[e.actor];
+  const badge = tag('div', 'detail-actor');
+  const sw = tag('span', 'swatch');
+  sw.style.background = rgba(palette().actor[e.actor], isDark() ? 0.4 : 0.24);
+  sw.style.outline = '1px solid ' + a.color;
+  badge.appendChild(sw);
+  badge.appendChild(document.createTextNode(a.label));
+  badge.style.color = a.color;
+  host.appendChild(badge);
+  host.appendChild(tag('h3', null, e.name));
+  host.appendChild(tag('div', 'detail-when', e.rel + ' · ' + e.when));
+  host.appendChild(tag('p', 'detail-desc', e.desc));
+
+  const tags = tag('div');
+  if (e.indicative) tags.appendChild(tag('span', 'tag is-indicative', 'order indicative'));
+  if (e.oneTime) tags.appendChild(tag('span', 'tag', 'one-time, activation only'));
+  if (e.flag === 'deadline') tags.appendChild(tag('span', 'tag', 'hard deadline'));
+  if (e.gate) tags.appendChild(tag('span', 'tag', 'scenario-dependent'));
+  if (tags.childNodes.length) host.appendChild(tags);
+
+  /* Only offered once the event is pinned: a button created on hover is
+     destroyed by the act of travelling to it. */
+  if (e.gate && state.pinned === e.id) {
+    const b = tag('button', 'btn btn-sm', 'Set gate ' + e.gate.n + ' to ' + (e.gate.passed ? 'missed' : 'clear'));
+    b.type = 'button';
+    b.id = 'detailGateBtn';
+    b.style.marginTop = '10px';
+    b.addEventListener('click', () => toggleGate(e.toggle, '#detailGateBtn'));
+    host.appendChild(b);
+  }
+
+  const dl = tag('dl', 'detail-meta');
+  if (e.deps && e.deps.length) {
+    dl.appendChild(tag('dt', null, 'Follows'));
+    dl.appendChild(tag('dd', null, e.deps.map(id => {
+      const dep = (state.depNames || {})[id];
+      return dep || id;
+    }).join(', ')));
+  }
+  dl.appendChild(tag('dt', null, 'Source'));
+  dl.appendChild(tag('dd', null, e.source));
+  host.appendChild(dl);
+}
+
+/* Compact read of the selected quarter, shown while no event is pinned. */
+function glancePanel(q) {
+  const wrap = tag('div');
+  wrap.style.marginTop = '14px';
+  const h = tag('div', 'detail-actor', 'Q' + q.n + ' at a glance');
+  h.style.color = 'var(--text-3)';
+  wrap.appendChild(h);
+
+  const rows = [
+    ['w1 consensus', fmtPct(q.w1Start) + ' → ' + fmtPct(q.w1End), 'var(--w1)'],
+    ['w2 service', q.bootstrap ? fmtPct(q.w2Start) + ' → ' + fmtPct(q.w2End) : fmtPct(q.w2Start) + ' (flat)', 'var(--w2)'],
+    ['w0 burn', fmtPct(q.w0Start) + ' → ' + fmtPct(q.w0End), 'var(--w0)']
+  ];
+  for (const [k, v, col] of rows) {
+    const r = tag('div', 'wrow');
+    const sw = tag('span', 'swatch');
+    sw.style.background = col;
+    r.appendChild(sw);
+    r.appendChild(tag('span', 'k', k));
+    const vv = tag('span', 'v', v);
+    vv.style.fontSize = '.9em';
+    r.appendChild(vv);
+    wrap.appendChild(r);
+  }
+
+  const dl = tag('dl', 'detail-meta');
+  dl.style.marginTop = '10px';
+  const put = (k, v) => { dl.appendChild(tag('dt', null, k)); dl.appendChild(tag('dd', null, v)); };
+  put('Gate at this close', q.gate
+    ? 'Gate ' + q.gate.n + ' · ' + fmtUSD(q.gate.target) + ' · ' + (q.gate.passed ? 'passes → w2 ' + fmtPct(q.gate.to) : 'fails → w2 holds at ' + fmtPct(q.gate.from))
+    : (q.bootstrap ? 'None — the bootstrap quarter runs no gate check' : 'None — w2 is already at its terminal 50%'));
+  put('Deadlines', 'close ' + fmtShort(qDate(q.endDay))
+    + ' · posting ends ' + fmtShort(qDate(q.endDay + POSTING_DAYS))
+    + ' · report due ' + fmtShort(qDate(q.endDay + REPORT_DUE))
+    + ' · verification ends ' + fmtShort(qDate(q.endDay + VERIFY_END))
+    + ' · timelock ' + fmtShort(qDate(q.endDay + TIMELOCK_END)));
+  wrap.appendChild(dl);
+  return wrap;
+}
+
+function renderTerminalCard(host) {
+  const t = state.scenario.terminal;
+  $('microTitle').textContent = 'Terminal state';
+  $('microSub').textContent = 'From ' + fmtLong(qDate(t.day)) + ' — after the last modelled quarter close';
+  const card = tag('div', 'termcard');
+  card.style.cssText = 'padding:18px 16px';
+  const h = tag('p');
+  h.style.cssText = 'margin:0 0 12px;font-size:1.05em;max-width:70ch';
+  h.textContent = t.isBestCase
+    ? 'Every gate passed. The split has reached its terminal shape: half of the block reward to consensus, half to service, nothing burned.'
+    : t.gatesPassed + ' of ' + GATES.length + ' gates passed inside the modelled window. w1 has finished its ramp at 50%, w2 is held at '
+      + fmtPct(t.w2) + ', and the ' + fmtPct(t.w0) + ' gap burns. Quarter closes keep running past this point, re-attempting gate '
+      + (t.nextGate ? t.nextGate.n + ' at ' + fmtUSD(t.nextGate.target) : '') + ' until it clears.';
+  card.appendChild(h);
+  const grid = tag('div');
+  grid.style.cssText = 'display:flex;gap:22px;flex-wrap:wrap';
+  for (const [k, sub, v, col] of [['w1', 'consensus', t.w1, 'var(--w1)'], ['w2', 'service', t.w2, 'var(--w2)'], ['w0', 'burn', t.w0, 'var(--w0)']]) {
+    const b = tag('div');
+    b.innerHTML = '<div style="font-size:.74em;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)">'
+      + k + ' ' + sub + '</div>';
+    const n = tag('div', 'num', fmtPct(v));
+    n.style.cssText = 'font-size:1.9em;font-weight:650;color:' + col;
+    b.appendChild(n);
+    grid.appendChild(b);
+  }
+  card.appendChild(grid);
+  const foot = tag('p', 'detail-meta');
+  foot.style.cssText = 'margin-top:14px;max-width:70ch';
+  foot.textContent = 'Standing obligations listed in the sidebar continue indefinitely; they are not bound to a quarter.';
+  card.appendChild(foot);
+  host.insertBefore(card, $('tip'));
+  renderDetail(null, null);
+}
+
+/* ---------- actions ---------- */
+function renderAll(opts) {
+  recompute();
+  renderStrip();
+  renderSidebar();
+  renderScheduleTable();
+  renderMacro(opts);
+  renderMicro();
+  writeURL();
+}
+function setSelected(n, focusSel) {
+  if (n < 1 || n > TERMINAL_SLOT || n === state.selected) return;
+  state.selected = n;
+  if (n > N_QUARTERS) state.pinned = null;
+  if (state.microRange === 'act' && n !== 1) state.microRange = 'eoq';
+  renderStrip();
+  renderSidebar();
+  renderScheduleTable();
+  renderMacro();
+  renderMicro();
+  writeURL();
+  if (focusSel) refocus(focusSel);
+  const t = state.scenario.terminal;
+  announce(n > N_QUARTERS
+    ? 'Terminal state selected, from ' + fmtLong(qDate(t.day)) + '. ' + scenarioSentence()
+    : 'Quarter ' + n + ' of ' + N_QUARTERS + ' selected. ' + $('microSub').textContent.replace(/^Quarter \d+ of \d+ · /, ''));
+}
+function toggleGate(qn, focusSel) {
+  const i = qn - 2;
+  if (i < 0 || i >= GATES.length) return;
+  state.passes[i] = !state.passes[i];
+  renderAll({ animate: true });
+  if (focusSel) refocus(focusSel);
+  const q = state.scenario.quarters[qn - 1];
+  const g = q.gate;
+  let msg = 'Gate check at the Q' + qn + ' close set to ' + (state.passes[i] ? 'clear' : 'missed') + '. ';
+  if (g && !g.passed) {
+    msg += 'w2 holds at ' + fmtPct(g.from) + ' from Q' + qn + ', and the same ' + fmtUSD(g.target)
+      + ' target is re-attempted at the next close. ';
+  } else if (g && g.passed) {
+    msg += 'w2 steps to ' + fmtPct(g.to) + ' after the Q' + qn + ' close. ';
+  }
+  announce(msg + scenarioSentence());
+}
+function setActivation(ms) {
+  if (ms == null) return;
+  state.activationMs = ms;
+  renderAll();
+  announce('Activation set to ' + fmtLong(ms) + '. Q1 closes ' + fmtLong(qDate(QUARTER_DAYS))
+    + ', and the modelled window ends ' + fmtLong(qDate(N_QUARTERS * QUARTER_DAYS)) + '.');
+}
+function effectiveTheme() {
+  return root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+function updateThemeBtn() {
+  const target = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  $('themeLabel').textContent = target === 'dark' ? 'Dark' : 'Light';
+  $('themeIcon').textContent = target === 'dark' ? '☽' : '☀';
+  $('themeBtn').setAttribute('aria-label', 'Switch to ' + target + ' theme');
+}
+function repaint() { renderMacro(); renderMicro(); renderActorLegend(); }
+
+/* ---------- wiring ---------- */
+/* Keep the control and the model in agreement: an unparseable or
+   out-of-range date is put back rather than silently ignored. */
+function activationFromInput(el, restore) {
+  const lo = parseISODate(el.min), hi = parseISODate(el.max);
+  const ms = parseISODate(el.value);
+  if (ms == null) {
+    if (restore) el.value = toISODate(state.activationMs);
+    return null;
+  }
+  const clamped = Math.min(Math.max(ms, lo), hi);
+  if (clamped !== ms) {
+    if (!restore) return null;
+    el.value = toISODate(clamped);
+    announce('Activation date is limited to ' + fmtLong(lo) + ' – ' + fmtLong(hi) + '.');
+  }
+  return clamped;
+}
+$('activation').addEventListener('input', e => setActivation(activationFromInput(e.target, false)));
+$('activation').addEventListener('change', e => setActivation(activationFromInput(e.target, true)));
+$('dateReset').addEventListener('click', () => {
+  $('activation').value = DEFAULT_ACTIVATION;
+  setActivation(parseISODate(DEFAULT_ACTIVATION));
+});
+$('themeBtn').addEventListener('click', () => {
+  const t = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = t;
+  try { localStorage.setItem('solstice-theme', t); } catch (e) { /* private mode */ }
+  updateThemeBtn();
+  repaint();
+});
+$('densityBtn').addEventListener('click', () => {
+  const on = root.dataset.density === 'large';
+  if (on) delete root.dataset.density; else root.dataset.density = 'large';
+  $('densityBtn').setAttribute('aria-pressed', String(!on));
+  try { localStorage.setItem('solstice-density', on ? '' : 'large'); } catch (e) { /* private mode */ }
+  requestAnimationFrame(repaint);
+});
+$('zoomReset').addEventListener('click', () => {
+  setView(0, TOTAL_DAYS);
+  announce('Time axis reset to the full window.');
+});
+$('resetGates').addEventListener('click', () => {
+  state.passes = new Array(GATES.length).fill(true);
+  renderAll({ animate: true });
+  announce('Scenario reset. ' + scenarioSentence());
+});
+$('gatelist').addEventListener('click', e => {
+  const sw = e.target.closest('.switch');
+  if (sw && !sw.disabled) toggleGate(+sw.dataset.gate, '.switch[data-gate="' + sw.dataset.gate + '"]');
+});
+$('strip').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (chip) setSelected(+chip.dataset.q, '.chip[data-q="' + chip.dataset.q + '"]');
+});
+$('strip').addEventListener('keydown', e => {
+  const keys = { ArrowLeft: -1, ArrowRight: 1 };
+  let next = null;
+  if (e.key in keys) next = state.selected + keys[e.key];
+  else if (e.key === 'Home') next = 1;
+  else if (e.key === 'End') next = TERMINAL_SLOT;
+  if (next == null) return;
+  e.preventDefault();
+  next = Math.max(1, Math.min(TERMINAL_SLOT, next));
+  setSelected(next, '.chip[data-q="' + next + '"]');
+  const chip = $('strip').querySelector('.chip[data-q="' + next + '"]');
+  if (chip) chip.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+});
+$('rangeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-range]');
+  if (!b) return;
+  state.microRange = b.dataset.range;
+  renderMicro();
+  refocus('#rangeSeg button[data-range="' + b.dataset.range + '"]');
+});
+$('prevQ').addEventListener('click', () => setSelected(state.selected - 1, '#prevQ'));
+$('nextQ').addEventListener('click', () => setSelected(state.selected + 1, '#nextQ'));
+
+/* Escape dismisses transient overlays and releases a pinned event (WCAG 1.4.13). */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  $('tip').hidden = true;
+  $('readout').hidden = true;
+  if (state.pinned) {
+    const id = state.pinned;
+    state.pinned = null;
+    renderMicro();
+    refocus('#microChart g.ev[data-ev="' + id + '"]');
+  }
+});
+$('permalink').addEventListener('click', () => {
+  const btn = $('permalink');
+  const done = ok => { btn.textContent = ok ? 'Link copied' : 'Copy failed — use the address bar'; setTimeout(() => { btn.textContent = 'Copy link to this scenario'; }, 2200); };
+  const url = location.href;
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => done(true), () => done(false));
+  else done(false);
+});
+
+let lastW = { macro: 0, micro: 0 };
+const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(entries => {
+  for (const en of entries) {
+    const w = Math.round(en.contentRect.width);
+    if (en.target.id === 'macroChart' && w !== lastW.macro) { lastW.macro = w; renderMacro(); }
+    if (en.target.id === 'microChart' && w !== lastW.micro) { lastW.micro = w; renderMicro(); }
+  }
+}) : null;
+if (!ro) addEventListener('resize', () => { renderMacro(); renderMicro(); });
+
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const onScheme = () => { updateThemeBtn(); repaint(); };
+if (darkQuery.addEventListener) darkQuery.addEventListener('change', onScheme);
+else if (darkQuery.addListener) darkQuery.addListener(onScheme);
+
+/* ---------- init ---------- */
+(function init() {
+  try {
+    const t = localStorage.getItem('solstice-theme');
+    if (t === 'dark' || t === 'light') root.dataset.theme = t;
+    if (localStorage.getItem('solstice-density') === 'large') root.dataset.density = 'large';
+  } catch (e) { /* private mode */ }
+  $('densityBtn').setAttribute('aria-pressed', String(root.dataset.density === 'large'));
+  $('themeBtn').removeAttribute('aria-pressed');
+
+  readURL();
+  $('densityBtn').setAttribute('aria-pressed', String(root.dataset.density === 'large'));
+  updateThemeBtn();
+  $('activation').value = toISODate(state.activationMs);
+
+  renderStandingTable();
+  renderActorLegend();
+  renderAll();
+
+  lastW.macro = Math.round($('macroChart').getBoundingClientRect().width);
+  lastW.micro = Math.round($('microChart').getBoundingClientRect().width);
+  if (ro) { ro.observe($('macroChart')); ro.observe($('microChart')); }
+})();
+</script>
+</body>
+</html>

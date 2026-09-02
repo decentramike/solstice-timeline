@@ -189,7 +189,12 @@ input[type="date"] {
 /* ============================================================
    chip strip (breadcrumb + minimap)
    ============================================================ */
-.stripwrap { margin-bottom: 14px; }
+.stripwrap {
+  /* Sticky so the answer to "where am I" survives scrolling down to the Gantt. */
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+  padding: 8px 0 10px; margin: -8px 0 8px;
+}
 .striphead {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 12px; margin-bottom: 6px;

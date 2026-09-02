@@ -135,7 +135,7 @@ button { font: inherit; color: inherit; }
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 .skip {
-  position: absolute; left: 8px; top: -40px; z-index: 20;
+  position: absolute; left: 8px; top: -6em; z-index: 20;
   background: var(--panel); color: var(--text); padding: 8px 12px;
   border: 1px solid var(--border-strong); border-radius: var(--r);
   transition: top .12s;
@@ -291,9 +291,8 @@ input[type="date"] {
 /* gate marker */
 .gm { cursor: pointer; }
 .gm-line { stroke-width: 1.25; stroke-dasharray: 3 2.5; }
-.gm-badge { stroke-width: 1.25; }
 .gm-text { font-family: var(--mono); font-weight: 650; }
-.gm:hover .gm-badge { stroke-width: 2; }
+.gm:hover .gm-badge { stroke: currentColor; stroke-width: 1.25; }
 
 /* crosshair */
 .xh-line { stroke-width: var(--hair); pointer-events: none; }
@@ -359,7 +358,7 @@ input[type="date"] {
 .switch[aria-checked="true"] { background: var(--pass-weak); border-color: var(--pass-line); background-image: none; }
 .switch[aria-checked="true"]::after { transform: translateX(20px); background: var(--pass); }
 .switch:disabled { cursor: not-allowed; opacity: .4; }
-.switch-label { flex: none; width: 34px; font-size: .76em; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.switch-label { flex: none; min-width: 4.4em; font-size: .78em; font-weight: 600; text-align: right; }
 .switch-label.is-pass { color: var(--pass); }
 .switch-label.is-fail { color: var(--fail); }
 
@@ -393,9 +392,9 @@ input[type="date"] {
 
 .lane-sep { stroke: var(--border); stroke-width: var(--hair); }
 .ev { cursor: pointer; }
-.ev:focus, .gm:focus { outline: none; }
-.ev .fring, .gm .fring { visibility: hidden; fill: none; stroke: var(--focus); stroke-width: 2.5; }
-.ev:focus-visible .fring, .gm:focus-visible .fring { visibility: visible; }
+.ev:focus { outline: none; }
+.ev .fring { visibility: hidden; fill: none; stroke: var(--focus); stroke-width: 2.5; }
+.ev:focus-visible .fring { visibility: visible; }
 .hit { fill: transparent; }
 .ev-bar { stroke-width: 1.25; rx: 3; }
 .ev-text { font-size: 11px; font-weight: 550; pointer-events: none; }
@@ -525,7 +524,7 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
         <label for="activation">Activation date</label>
         <div class="field-row">
           <input type="date" id="activation" value="2026-10-15" min="2026-01-01" max="2032-12-31">
-          <button type="button" class="btn btn-sm btn-ghost" id="dateReset" title="Back to the Oct 15, 2026 planning assumption">Default</button>
+          <button type="button" class="btn btn-sm" id="dateReset" title="Back to the Oct 15, 2026 planning assumption">Default</button>
         </div>
       </div>
       <div class="field">
@@ -990,6 +989,7 @@ function eventsForQuarter(q, scenario, activationMs) {
         : 'In this scenario the quarter falls short of ' + fmtUSD(g.target) + ', so w2 holds at ' + fmtPct(g.from)
           + ', the gap burns instead, and the same target is re-attempted at the next close \u2014 the ladder never skips a rung.')
         + (g.attempt > 1 ? ' Attempt ' + g.attempt + ' at this rung.' : ''),
+      short: 'G' + g.n + (g.passed ? ' \u2713' : ' \u2717'),
       source: 'Scenario setting, not protocol \u2014 flip it here or in the Scenario panel',
       deps: ['gate-check'], indicative: true, gate: g, toggle: q.n
     });
@@ -1006,13 +1006,13 @@ function eventsForQuarter(q, scenario, activationMs) {
 
   ev.push({
     id: 'confirm-pipeline', actor: 'sra', name: 'Confirm pipeline ran', kind: 'bar',
-    start: QE + VERIFY_END + 3.0, end: QE + VERIFY_END + 6.2, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    start: QE + VERIFY_END + 4.0, end: QE + VERIFY_END + 6.6, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
     desc: 'SRA Governance verifies that FinalizeConversion, SubmitShares and the gate check have run, and checks the integrity of the wallet-to-share map.',
     source: 'Gov repo 03 (SRA duties)', deps: ['submit-shares'], indicative: true
   });
   ev.push({
     id: 'confirm-mechanism', actor: 'swa', name: 'Confirm mechanism write', kind: 'bar',
-    start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END - 0.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
     desc: q.gate && q.gate.passed
       ? 'The gate cleared, so SWA Governance confirms the queued w2 write matches the gate rule. The write is non-cancellable once queued.'
       : (q.bootstrap
@@ -1148,7 +1148,7 @@ const state = {
 /* Pan and zoom act on the time axis only; the weight axis is always 0-100%.
    Drag listeners live on the document because each pan re-renders (and so
    replaces) the SVG the gesture started on. */
-let macroBox = null, macroDrag = null, macroSwallowClick = false, macroChrome = null;
+let macroBox = null, macroDrag = null, macroSwallowClick = false, macroChrome = null, macroClearHover = null;
 function setView(d0, d1) {
   const span = Math.min(TOTAL_DAYS, Math.max(30, d1 - d0));
   let lo = d0, hi = d0 + span;
@@ -1182,12 +1182,14 @@ function recompute() { state.scenario = computeScenario(state.passes); }
 
 /* Every re-render replaces the control that was just activated, so focus has
    to be put back deliberately or the user lands on <body>. */
-function refocus(sel) {
+function refocus(sel, fallback) {
   const n = document.querySelector(sel);
-  if (n && !n.disabled) n.focus({ preventScroll: true });
+  if (n && !n.disabled) { n.focus({ preventScroll: true }); return; }
+  if (fallback) refocus(fallback);
 }
 /* One polite live region, written to only by deliberate user actions. */
 function announce(msg) { $('statusLive').textContent = msg; }
+let pendingNotice = '';
 function scenarioSentence() {
   const t = state.scenario.terminal;
   return t.gatesPassed + ' of ' + GATES.length + ' gates clear. From ' + fmtLong(qDate(t.day))
@@ -1558,7 +1560,7 @@ function renderMacro(opts) {
   const twoCol = sidePanel && window.innerWidth > 1180;
   if (twoCol) {
     const chrome = macroChrome != null ? macroChrome : Math.round(250 * (S > 1 ? 1.12 : 1));
-    h = Math.round(Math.max(h, Math.min(640, sidePanel.offsetHeight - chrome, window.innerHeight * 0.72)));
+    h = Math.round(Math.max(h, Math.min(S > 1 ? 700 : 640, sidePanel.offsetHeight - chrome, window.innerHeight * 0.72)));
   }
   const pad = { t: Math.round(34 * S), r: 16, b: Math.round(48 * S), l: Math.round(44 * S) };
   const x0 = pad.l, x1 = w - pad.r, y0 = h - pad.b, y1 = pad.t;
@@ -1641,6 +1643,7 @@ function renderMacro(opts) {
     if (x - half < x0) return { tx: x0, anchor: 'start' };
     return { tx: x, anchor: 'middle' };
   };
+  let lastBoundaryRight = -1e9;
   for (let k = 0; k <= N_QUARTERS; k++) {
     const d = k * QUARTER_DAYS, x = X(d);
     if (!inView(x)) continue;
@@ -1648,8 +1651,14 @@ function renderMacro(opts) {
     gAxis.appendChild(el('line', { x1: x, x2: x, y1: y0, y2: y0 + 4, class: 'axis-line' }));
     if (labelBoundaries && (N_QUARTERS - k) % tickEvery === 0) {
       const a = tickAnchor(x);
-      gAxis.appendChild(txt(a.tx, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
-        { 'text-anchor': a.anchor, 'font-size': Math.round(10.5 * S) }));
+      /* The edge clamp shifts a label sideways, which can walk it into its
+         neighbour, so track where the last one actually ended. */
+      const left = a.anchor === 'start' ? a.tx : (a.anchor === 'end' ? a.tx - tickPx : a.tx - tickPx / 2);
+      if (left >= lastBoundaryRight + 6) {
+        lastBoundaryRight = left + tickPx;
+        gAxis.appendChild(txt(a.tx, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
+          { 'text-anchor': a.anchor, 'font-size': Math.round(10.5 * S) }));
+      }
     }
   }
   if (!labelBoundaries) {
@@ -1790,12 +1799,13 @@ function renderMacro(opts) {
     readout.style.left = Math.max(4, lx) + 'px';
     readout.style.top = ly + 'px';
   };
-  const clearHover = () => {
+  macroClearHover = () => {
     readout.hidden = true;
     xh.setAttribute('opacity', 0);
     xhB.setAttribute('opacity', 0);
     hoverRect.setAttribute('width', 0);
   };
+  const clearHover = macroClearHover;
   /* Pointer events rather than mouse events, so the readout also works on a
      touch display in a meeting room. */
   overlay.addEventListener('pointermove', onMove);
@@ -1805,6 +1815,7 @@ function renderMacro(opts) {
   overlay.addEventListener('pointercancel', clearHover);
   overlay.addEventListener('click', ev => {
     if (macroSwallowClick) { macroSwallowClick = false; return; }
+    if (ev.detail > 1) return;      // second half of a double-click-to-reset
     setSelected(slotFor(dayFromEvent(ev)));
   });
   overlay.addEventListener('dblclick', () => setView(0, TOTAL_DAYS));
@@ -1845,14 +1856,14 @@ function renderMacro(opts) {
     g.appendChild(el('line', { x1: x, x2: x, y1: y1 - 2, y2: y0, class: 'gm-line', stroke: rim, 'stroke-width': 1.4 * S }));
     const qPix = (x1 - x0) / ((V.d1 - V.d0) / QUARTER_DAYS);
     const mode = qPix >= 42 * S ? 'full' : (qPix >= 22 * S ? 'glyph' : 'none');
-    const bw = Math.round((mode === 'glyph' ? 18 : 34) * S), bh = Math.round(17 * S);
+    const bw = Math.round((mode === 'glyph' ? 17 : 32) * S), bh = Math.round(15 * S);
     /* A 34x17 badge is well under any sane touch target, so give it a real
        hit area without changing how it looks. */
     g.appendChild(el('rect', { class: 'hit', x: x - 22 * S, y: y1 - bh - 12, width: 44 * S, height: bh + 18 }));
     if (mode !== 'none') {
       g.appendChild(el('rect', {
-        class: 'gm-badge', x: x - bw / 2, y: y1 - bh - 6, width: bw, height: bh, rx: 4,
-        fill: isDark() ? rgba(col, 0.2) : rgba(col, 0.1), stroke: rim
+        class: 'gm-badge', x: x - bw / 2, y: y1 - bh - 6, width: bw, height: bh, rx: 3,
+        fill: isDark() ? rgba(col, 0.16) : rgba(col, 0.09), stroke: 'none'
       }));
       g.appendChild(txt(x, y1 - 6 - bh / 2 + 4,
         (pass ? '✓' : '✕') + (mode === 'full' ? ' G' + q.gate.n : ''), 'gm-text',
@@ -2077,10 +2088,12 @@ function renderMicro() {
     gTicks.appendChild(el('line', { x1: x, x2: x, y1: plotBottom, y2: plotBottom + 4, class: 'axis-line' }));
     const half = label.length * charW * 0.5;
     if (x - half - 6 < lastTickX) continue;
+    let anchor = 'middle', tx = x;
+    if (x + half > w - padR) { anchor = 'end'; tx = w - padR; }
     lastTickX = x + half;
     first = false; lastYear = yr;
-    gTicks.appendChild(txt(x, plotBottom + Math.round(16 * S), label, 'tick',
-      { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: P['--text-3'] }));
+    gTicks.appendChild(txt(tx, plotBottom + Math.round(16 * S), label, 'tick',
+      { 'text-anchor': anchor, 'font-size': Math.round(10 * S), fill: P['--text-3'] }));
   }
   svg.appendChild(gTicks);
 
@@ -2135,6 +2148,12 @@ function renderMicro() {
           const keep = Math.max(3, Math.floor(rightRoom / charW) - 1);
           label = label.slice(0, keep).replace(/[\s—-]+$/, '') + '…';
           plan = { tx: bx.rx + 7, anchor: 'start', inside: false, label };
+        } else if (e.short) {
+          /* Never drop the label on the bar carrying the scenario result. */
+          const sw = e.short.length * charW;
+          if (bx.w - 8 >= sw) plan = { tx: bx.x + 4, anchor: 'start', inside: true, label: e.short };
+          else if (rightRoom >= sw) plan = { tx: bx.rx + 5, anchor: 'start', inside: false, label: e.short };
+          else if (leftRoom >= sw) plan = { tx: bx.lx - 5, anchor: 'end', inside: false, label: e.short };
         }
         if (plan) {
           const reach = plan.anchor === 'end' ? plan.tx : plan.tx + plan.label.length * charW;
@@ -2147,15 +2166,22 @@ function renderMicro() {
     }
   }
 
-  /* dependency links, under the bars */
+  /* Dependency links, under the bars. Below about 4px per day the whole close
+     cycle is a few pixels wide, so drop the chain as a set rather than letting
+     individual arrows quietly fail to fit. */
   const gDeps = el('g', { 'aria-hidden': 'true' });
-  for (const e of events) {
+  const showDeps = (w - gutter - padR) / (d1 - d0) >= 4;
+  for (const e of showDeps ? events : []) {
     for (const dep of e.deps || []) {
       const a = box[dep], b = box[e.id];
       if (!a || !b) continue;
-      const ax = a.rx, bx = b.lx;
-      if (bx < ax - 2) continue;
-      const mx = ax + Math.max(5, (bx - ax) / 2);
+      const ax = a.rx;
+      /* A milestone is a diamond, so its left vertex can sit behind the
+         predecessor's right edge even when the marker itself is ahead of it.
+         Test against the centre, then stop the arrow at the vertex. */
+      if ((b.dia ? b.x : b.lx) < ax - 2) continue;
+      const bx = Math.max(b.lx, ax + 4);
+      const mx = Math.min(bx - 1, ax + Math.max(5, (bx - ax) / 2));
       gDeps.appendChild(el('path', { class: 'dep', d: 'M' + ax + ' ' + a.cy + 'H' + mx + 'V' + b.cy + 'H' + (bx - 4) }));
       gDeps.appendChild(el('path', { class: 'dep-head', d: 'M' + (bx - 4.5) + ' ' + (b.cy - 3) + 'L' + bx + ' ' + b.cy + 'L' + (bx - 4.5) + ' ' + (b.cy + 3) + 'Z' }));
     }
@@ -2428,7 +2454,7 @@ function renderAll(opts) {
   renderMicro();
   writeURL();
 }
-function setSelected(n, focusSel) {
+function setSelected(n, focusSel, focusFallback) {
   if (n < 1 || n > TERMINAL_SLOT || n === state.selected) return;
   state.selected = n;
   if (n > N_QUARTERS) state.pinned = null;
@@ -2439,7 +2465,7 @@ function setSelected(n, focusSel) {
   renderMacro();
   renderMicro();
   writeURL();
-  if (focusSel) refocus(focusSel);
+  if (focusSel) refocus(focusSel, focusFallback);
   const t = state.scenario.terminal;
   announce(n > N_QUARTERS
     ? 'Terminal state selected, from ' + fmtLong(qDate(t.day)) + '. ' + scenarioSentence()
@@ -2466,8 +2492,9 @@ function setActivation(ms) {
   if (ms == null) return;
   state.activationMs = ms;
   renderAll();
-  announce('Activation set to ' + fmtLong(ms) + '. Q1 closes ' + fmtLong(qDate(QUARTER_DAYS))
+  announce(pendingNotice + 'Activation set to ' + fmtLong(ms) + '. Q1 closes ' + fmtLong(qDate(QUARTER_DAYS))
     + ', and the modelled window ends ' + fmtLong(qDate(N_QUARTERS * QUARTER_DAYS)) + '.');
+  pendingNotice = '';
 }
 function effectiveTheme() {
   return root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -2494,10 +2521,14 @@ function activationFromInput(el, restore) {
   if (clamped !== ms) {
     if (!restore) return null;
     el.value = toISODate(clamped);
-    announce('Activation date is limited to ' + fmtLong(lo) + ' – ' + fmtLong(hi) + '.');
+    pendingNotice = 'Activation dates are limited to ' + fmtLong(lo) + ' – ' + fmtLong(hi) + '. ';
   }
   return clamped;
 }
+document.querySelector('a.skip').addEventListener('click', e => {
+  e.preventDefault();               // keep the scenario state in the hash
+  $('main').focus();
+});
 $('activation').addEventListener('input', e => setActivation(activationFromInput(e.target, false)));
 $('activation').addEventListener('change', e => setActivation(activationFromInput(e.target, true)));
 $('dateReset').addEventListener('click', () => {
@@ -2568,14 +2599,14 @@ $('rangeSeg').addEventListener('keydown', e => {
   renderMicro();
   refocus('#rangeSeg button[data-range="' + next.dataset.range + '"]');
 });
-$('prevQ').addEventListener('click', () => setSelected(state.selected - 1, '#prevQ'));
-$('nextQ').addEventListener('click', () => setSelected(state.selected + 1, '#nextQ'));
+$('prevQ').addEventListener('click', () => setSelected(state.selected - 1, '#prevQ', '#nextQ'));
+$('nextQ').addEventListener('click', () => setSelected(state.selected + 1, '#nextQ', '#prevQ'));
 
 /* Escape dismisses transient overlays and releases a pinned event (WCAG 1.4.13). */
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   $('tip').hidden = true;
-  $('readout').hidden = true;
+  if (macroClearHover) macroClearHover();
   if (state.pinned) {
     const id = state.pinned;
     state.pinned = null;

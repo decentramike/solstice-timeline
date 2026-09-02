@@ -246,6 +246,24 @@ const allPass = () => new Array(GATES.length).fill(true);
 
   eq('every dependency resolves', ev.every(e => (e.deps || []).every(d => byId[d])), true);
   eq('no dependency runs backwards', ev.every(e => (e.deps || []).every(d => byId[d].start <= e.start)), true);
+  // A predecessor that finishes AFTER its dependent starts is a real ordering
+  // error, and the renderer can only respond by dropping the arrow silently —
+  // so assert the whole chain is drawable, in every quarter and scenario.
+  for (const mask of [0xff, 0x00, 0x55, 0x01]) {
+    const p2 = Array.from({ length: 8 }, (_, i) => !!(mask & (1 << i)));
+    const s2 = computeScenario(p2);
+    for (const q2 of s2.quarters) {
+      const evs = eventsForQuarter(q2, s2, a);
+      const by2 = Object.fromEntries(evs.map(e => [e.id, e]));
+      for (const e of evs) {
+        for (const d of e.deps || []) {
+          ok('Q' + q2.n + ' mask ' + mask + ': ' + d + ' finishes before ' + e.id + ' starts',
+            by2[d].end <= e.start + 1e-9,
+            by2[d].id + ' ends ' + by2[d].end + ' but ' + e.id + ' starts ' + e.start);
+        }
+      }
+    }
+  }
   eq('every actor is a known lane', ev.every(e => LANE_ORDER.includes(e.actor)), true);
   eq('every event names a source', ev.every(e => e.source && e.source.length > 3), true);
   eq('every event carries relative timing', ev.every(e => e.rel && e.when), true);

@@ -1601,24 +1601,36 @@ function renderMacro(opts) {
   /* Zoomed in past a few quarters there may be no boundary in view at all, so
      the axis switches to plain date ticks rather than going unlabelled. */
   const labelBoundaries = viewSpan >= 2.5 * QUARTER_DAYS;
+  const tickPx = 66 * S;
+  /* Keep an edge tick's label inside the plot instead of letting it hang off. */
+  const tickAnchor = x => {
+    const half = tickPx / 2;
+    if (x + half > x1) return { tx: x1, anchor: 'end' };
+    if (x - half < x0) return { tx: x0, anchor: 'start' };
+    return { tx: x, anchor: 'middle' };
+  };
   for (let k = 0; k <= N_QUARTERS; k++) {
     const d = k * QUARTER_DAYS, x = X(d);
     if (!inView(x)) continue;
     gAxis.appendChild(el('line', { x1: x, x2: x, y1: y1, y2: y0, class: 'qsep', 'stroke-opacity': k === N_QUARTERS ? 0.9 : 0.5 }));
     gAxis.appendChild(el('line', { x1: x, x2: x, y1: y0, y2: y0 + 4, class: 'axis-line' }));
-    if (labelBoundaries && (k % tickEvery === 0 || k === N_QUARTERS)) {
-      gAxis.appendChild(txt(x, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
-        { 'text-anchor': 'middle', 'font-size': Math.round(10.5 * S) }));
+    if (labelBoundaries && (N_QUARTERS - k) % tickEvery === 0) {
+      const a = tickAnchor(x);
+      gAxis.appendChild(txt(a.tx, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
+        { 'text-anchor': a.anchor, 'font-size': Math.round(10.5 * S) }));
     }
   }
   if (!labelBoundaries) {
-    const step = [1, 2, 3, 7, 14, 30, 60].find(v => viewSpan / v <= 9) || 90;
+    /* Budget by pixels, not by tick count: n steps means n+1 labels. */
+    const maxLabels = Math.max(2, Math.floor((x1 - x0) / tickPx));
+    const step = [1, 2, 3, 7, 14, 30, 60, 90].find(v => viewSpan / v <= maxLabels - 1) || 90;
     for (let d = Math.ceil(V.d0 / step) * step; d <= V.d1; d += step) {
       const x = X(d);
       if (!inView(x)) continue;
       gAxis.appendChild(el('line', { x1: x, x2: x, y1: y0, y2: y0 + 4, class: 'axis-line' }));
-      gAxis.appendChild(txt(x, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
-        { 'text-anchor': 'middle', 'font-size': Math.round(10.5 * S) }));
+      const a = tickAnchor(x);
+      gAxis.appendChild(txt(a.tx, y0 + Math.round(28 * S), fmtTick(qDate(d)), 'tick',
+        { 'text-anchor': a.anchor, 'font-size': Math.round(10.5 * S) }));
     }
   }
   /* Label the visible slice of each band, so a quarter you are zoomed inside
@@ -1799,16 +1811,21 @@ function renderMacro(opts) {
     const rim = pass ? P['--pass-line'] : P['--fail-line'];
     const g = el('g', { class: 'gm' });
     g.appendChild(el('line', { x1: x, x2: x, y1: y1 - 2, y2: y0, class: 'gm-line', stroke: rim, 'stroke-width': 1.4 * S }));
-    const bw = Math.round(34 * S), bh = Math.round(17 * S);
+    const qPix = (x1 - x0) / ((V.d1 - V.d0) / QUARTER_DAYS);
+    const mode = qPix >= 42 * S ? 'full' : (qPix >= 22 * S ? 'glyph' : 'none');
+    const bw = Math.round((mode === 'glyph' ? 18 : 34) * S), bh = Math.round(17 * S);
     /* A 34x17 badge is well under any sane touch target, so give it a real
        hit area without changing how it looks. */
     g.appendChild(el('rect', { class: 'hit', x: x - 22 * S, y: y1 - bh - 12, width: 44 * S, height: bh + 18 }));
-    g.appendChild(el('rect', {
-      class: 'gm-badge', x: x - bw / 2, y: y1 - bh - 6, width: bw, height: bh, rx: 4,
-      fill: isDark() ? rgba(col, 0.2) : rgba(col, 0.1), stroke: rim
-    }));
-    g.appendChild(txt(x, y1 - 6 - bh / 2 + 4, (pass ? '✓' : '✕') + ' G' + q.gate.n, 'gm-text',
-      { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: col }));
+    if (mode !== 'none') {
+      g.appendChild(el('rect', {
+        class: 'gm-badge', x: x - bw / 2, y: y1 - bh - 6, width: bw, height: bh, rx: 4,
+        fill: isDark() ? rgba(col, 0.2) : rgba(col, 0.1), stroke: rim
+      }));
+      g.appendChild(txt(x, y1 - 6 - bh / 2 + 4,
+        (pass ? '✓' : '✕') + (mode === 'full' ? ' G' + q.gate.n : ''), 'gm-text',
+        { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: col }));
+    }
     const ttl = el('title');
     ttl.textContent = 'Q' + q.n + ' close · gate ' + q.gate.n + ' · ' + fmtUSD(q.gate.target) + ' · '
       + (pass ? 'passes, w2 steps to ' + fmtPct(q.gate.to) : 'fails, w2 holds at ' + fmtPct(q.gate.from))
@@ -2051,17 +2068,39 @@ function renderMicro() {
     }
   }
 
-  /* room to each side, so labels can never overwrite a neighbour */
-  const room = {};
+  /* Plan labels row by row, left to right, carrying a cursor for how far the
+     previous label actually reached. Without that, a label pushed to the left
+     of its own bar lands on top of its neighbour's label. */
+  const labelPlan = {};
   for (const lane of lanes) {
     for (const rowItems of lane.rows) {
       const sorted = rowItems.slice().sort((a, b) => box[a.id].lx - box[b.id].lx);
+      let cursor = gutter + 4;
       sorted.forEach((e, i) => {
-        const before = sorted[i - 1], after = sorted[i + 1];
-        room[e.id] = {
-          left: before ? box[before.id].rx + 6 : gutter + 4,
-          right: after ? box[after.id].lx - 6 : w - padR
-        };
+        const bx = box[e.id];
+        if (e.kind === 'note') { cursor = Math.max(cursor, bx.rx); return; }
+        const after = sorted[i + 1];
+        const rightLimit = after ? box[after.id].lx - 6 : w - padR;
+        const rightRoom = rightLimit - (bx.rx + 7);
+        const leftRoom = (bx.lx - 7) - cursor;
+        let label = e.name;
+        const tw = label.length * charW;
+        let plan = null;
+        if (e.kind === 'bar' && bx.w - 14 >= tw) plan = { tx: bx.x + 7, anchor: 'start', inside: true, label };
+        else if (rightRoom >= tw) plan = { tx: bx.rx + 7, anchor: 'start', inside: false, label };
+        else if (leftRoom >= tw) plan = { tx: bx.lx - 7, anchor: 'end', inside: false, label };
+        else if (rightRoom >= 42) {
+          const keep = Math.max(3, Math.floor(rightRoom / charW) - 1);
+          label = label.slice(0, keep).replace(/[\s—-]+$/, '') + '…';
+          plan = { tx: bx.rx + 7, anchor: 'start', inside: false, label };
+        }
+        if (plan) {
+          const reach = plan.anchor === 'end' ? plan.tx : plan.tx + plan.label.length * charW;
+          cursor = Math.max(cursor, bx.rx, reach);
+          labelPlan[e.id] = plan;
+        } else {
+          cursor = Math.max(cursor, bx.rx);
+        }
       });
     }
   }
@@ -2130,26 +2169,12 @@ function renderMicro() {
       g.appendChild(el('rect', { class: 'hit', x: bx.x - 14, y: bx.cy - 14, width: 28, height: 28 }));
     }
 
-    /* label: inside if it fits, else whichever side has room, else clipped, else dropped */
-    let label = e.name;
-    let tw = label.length * charW;
-    const rightRoom = room[e.id].right - (bx.rx + 7);
-    const leftRoom = (bx.lx - 7) - room[e.id].left;
-    let tx = null, anchor = 'start', inside = false;
-    if (e.kind === 'bar' && bx.w - 14 >= tw) { tx = bx.x + 7; inside = true; }
-    else if (rightRoom >= tw) { tx = bx.rx + 7; }
-    else if (leftRoom >= tw) { tx = bx.lx - 7; anchor = 'end'; }
-    else if (rightRoom >= 42) {
-      const keep = Math.max(3, Math.floor(rightRoom / charW) - 1);
-      label = label.slice(0, keep).replace(/[\s—-]+$/, '') + '…';
-      tw = label.length * charW;
-      tx = bx.rx + 7;
-    }
-    if (tx != null) {
-      const t = txt(tx, bx.cy + 3.6, label, 'ev-text', {
-        'text-anchor': anchor, 'font-size': fs, fill: e.muted ? P['--text-3'] : P['--text']
+    const plan = labelPlan[e.id];
+    if (plan) {
+      const t = txt(plan.tx, bx.cy + 3.6, plan.label, 'ev-text', {
+        'text-anchor': plan.anchor, 'font-size': fs, fill: e.muted ? P['--text-3'] : P['--text']
       });
-      if (!inside) {
+      if (!plan.inside) {
         t.setAttribute('paint-order', 'stroke');
         t.setAttribute('stroke', P['--panel']);
         t.setAttribute('stroke-width', 3.5);

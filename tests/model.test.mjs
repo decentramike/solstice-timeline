@@ -19,6 +19,7 @@ const MODEL = new Function(src + '\n return MODEL;')();
 
 const {
   QUARTER_DAYS, GATES, W2_TERMINAL, POSTING_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_END,
+  VOL_TARGET_ENTRY, VOL_TARGET_RATIO, FIP_EPOCHS_PER_QUARTER, EPOCH_SECONDS, N_QUARTERS, TOTAL_DAYS,
   computeScenario, bandVertices, weightsAtDay, eventsForQuarter, parseISODate, dayMs, fmtLong,
   DEFAULT_ACTIVATION, ACTORS, LANE_ORDER
 } = MODEL;
@@ -78,19 +79,30 @@ const allPass = () => new Array(GATES.length).fill(true);
 
 /* ---------- 2. the gate ladder ---------- */
 {
-  const targets = [3500, 9450, 25515, 68891, 186005, 502213, 1355976, 3661135];
+  // FIP-0118 §3.1.1: "no rounding or flooring appears in the gate rule, and
+  // the values listed above are the targets to full precision."
+  const targets = [3500, 9450, 25515, 68890.5, 186004.35, 502211.745, 1355971.7115, 3661123.62105];
+  eq('entry target', VOL_TARGET_ENTRY, 3500);
+  eq('escalation ratio', VOL_TARGET_RATIO, 2.7);
   GATES.forEach((g, i) => {
-    eq('gate ' + g.n + ' target', g.target, targets[i]);
+    eq('gate ' + g.n + ' target is the FIP value to full precision', g.target, targets[i]);
     eq('gate ' + g.n + ' step', pc(g.to) - pc(g.from), 5);
-    // The published table is the source of truth, asserted exactly above.
-    // $3,500 x 2.7^n reproduces it to within 7.3e-6 relative but not exactly,
-    // and no single rounding rule (round/ceil/trunc, closed-form or per-step)
-    // fits all eight rungs — so the formula is documentation, not a derivation.
-    const formula = 3500 * Math.pow(2.7, i);
-    ok('gate ' + g.n + ' within 1e-5 of $3,500 x 2.7^' + i,
-      Math.abs(g.target - formula) / g.target < 1e-5,
-      'target ' + g.target + ' vs formula ' + formula.toFixed(2));
+    const formula = VOL_TARGET_ENTRY * Math.pow(VOL_TARGET_RATIO, i);
+    ok('gate ' + g.n + ' is exactly $3,500 x 2.7^' + i + ' (float epsilon only)',
+      Math.abs(g.target - formula) / g.target < 1e-12,
+      'target ' + g.target + ' vs formula ' + formula);
   });
+  ok('no target has been rounded to a whole dollar',
+    GATES.some(g => !Number.isInteger(g.target)), 'all 8 are integers — rounding has crept back in');
+  // Display must not quietly undo the precision the gate rule guarantees.
+  for (const g of GATES) {
+    const shown = MODEL.fmtUSD(g.target);
+    eq('gate ' + g.n + ' displays without losing precision',
+      Number(shown.replace(/[$,]/g, '')), g.target);
+  }
+  ok('the abbreviated form is visibly abbreviated, not truncated',
+    /[kM]$/.test(MODEL.fmtUSDShort(3661123.62105)) && /[kM]$/.test(MODEL.fmtUSDShort(502211.745)),
+    MODEL.fmtUSDShort(3661123.62105) + ' / ' + MODEL.fmtUSDShort(502211.745));
   eq('ladder ends at terminal w2', GATES[GATES.length - 1].to, W2_TERMINAL);
   eq('ladder is contiguous', GATES.every((g, i) => i === 0 || Math.abs(g.from - GATES[i - 1].to) < 1e-9), true);
 }
@@ -182,27 +194,41 @@ const allPass = () => new Array(GATES.length).fill(true);
   eq('day 0 w1', pc(weightsAtDay(0, sc).w1), 95);
   eq('day 0 w2', pc(weightsAtDay(0, sc).w2), 5);
   eq('day 0 w0', pc(weightsAtDay(0, sc).w0), 0);
-  eq('mid bootstrap w2 interpolates', pc(weightsAtDay(45, sc).w2), 7.5);
-  eq('bootstrap close w1', pc(weightsAtDay(90, sc).w1), 90);
-  eq('bootstrap close w2', pc(weightsAtDay(90, sc).w2), 10);
-  eq('bootstrap close w0', pc(weightsAtDay(90, sc).w0), 0);
-  eq('mid Q2 w2 is flat', pc(weightsAtDay(135, sc).w2), 10);
-  eq('mid Q2 w0', pc(weightsAtDay(135, sc).w0), 2.5);
-  eq('w1 floors after the ramp', pc(weightsAtDay(900, sc).w1), 50);
-  eq('terminal w2 after the window', pc(weightsAtDay(900, sc).w2), 50);
+  // Expressed in quarters, not days: the configured quarter length may change.
+  const Q = QUARTER_DAYS;
+  eq('mid bootstrap w2 interpolates', pc(weightsAtDay(Q / 2, sc).w2), 7.5);
+  eq('bootstrap close w1', pc(weightsAtDay(Q, sc).w1), 90);
+  eq('bootstrap close w2', pc(weightsAtDay(Q, sc).w2), 10);
+  eq('bootstrap close w0', pc(weightsAtDay(Q, sc).w0), 0);
+  eq('mid Q2 w2 is flat', pc(weightsAtDay(Q * 1.5, sc).w2), 10);
+  eq('mid Q2 w0', pc(weightsAtDay(Q * 1.5, sc).w0), 2.5);
+  eq('w1 floors after the ramp', pc(weightsAtDay(TOTAL_DAYS, sc).w1), 50);
+  eq('terminal w2 after the window', pc(weightsAtDay(TOTAL_DAYS, sc).w2), 50);
+  eq('the ramp lands exactly on the floor at the end of Q9',
+    pc(weightsAtDay(N_QUARTERS * Q, sc).w1), 50);
 }
 
 /* ---------- 6. dates derive from the activation date ---------- */
 {
   const a = parseISODate(DEFAULT_ACTIVATION);
   eq('default activation parses', fmtLong(a), 'Oct 15, 2026');
-  const want = ['Jan 13, 2027', 'Apr 13, 2027', 'Jul 12, 2027', 'Oct 10, 2027', 'Jan 8, 2028',
+  // FIP-0118 §3.2 fixes EPOCHS_PER_QUARTER at 259,200 epochs of 30 seconds.
+  eq('the FIP quarter is 90 days', FIP_EPOCHS_PER_QUARTER * EPOCH_SECONDS / 86400, 90);
+  const want90 = ['Jan 13, 2027', 'Apr 13, 2027', 'Jul 12, 2027', 'Oct 10, 2027', 'Jan 8, 2028',
     'Apr 7, 2028', 'Jul 6, 2028', 'Oct 4, 2028', 'Jan 2, 2029'];
-  for (let k = 1; k <= 9; k++) eq('Q' + k + ' closes', fmtLong(dayMs(a, k * QUARTER_DAYS)), want[k - 1]);
-  // and they move with the activation date
+  for (let k = 1; k <= 9; k++) {
+    eq('at the FIP 90-day quarter, Q' + k + ' closes', fmtLong(dayMs(a, k * 90)), want90[k - 1]);
+  }
+  // Whatever length this page is configured to, every boundary must follow it.
+  for (let k = 1; k <= 9; k++) {
+    eq('Q' + k + ' close follows the configured quarter length',
+      fmtLong(dayMs(a, k * QUARTER_DAYS)),
+      fmtLong(a + Math.round(k * QUARTER_DAYS) * 86400000));
+  }
+  ok('quarter length is positive and finite', QUARTER_DAYS > 0 && Number.isFinite(QUARTER_DAYS));
   const b = parseISODate('2027-03-01');
-  eq('shifted activation, Q1 close', fmtLong(dayMs(b, QUARTER_DAYS)), 'May 30, 2027');
-  eq('quarter length', QUARTER_DAYS, 90);
+  eq('shifted activation, Q1 close', fmtLong(dayMs(b, QUARTER_DAYS)),
+    fmtLong(b + Math.round(QUARTER_DAYS) * 86400000));
   eq('bad date rejected', parseISODate('nope'), null);
   eq('empty date rejected', parseISODate(''), null);
   eq('two-digit year not mapped into the 1900s', parseISODate('0026-10-15'), null);
@@ -212,7 +238,7 @@ const allPass = () => new Array(GATES.length).fill(true);
   eq('month 00 rejected', parseISODate('2026-00-10'), null);
   eq('day 32 rejected', parseISODate('2026-10-32'), null);
   eq('day 00 rejected', parseISODate('2026-10-00'), null);
-  eq('a quarter close may land on a leap day',
+  eq('a 90-day offset may land on a leap day',
     fmtLong(dayMs(parseISODate('2027-12-01'), 90)), 'Feb 29, 2028');
 }
 
@@ -235,9 +261,15 @@ const allPass = () => new Array(GATES.length).fill(true);
   eq('Community Report due at QE+7d', byId['community-report'].start - QE, REPORT_DUE);
   eq('report deadline lands inside the verification window',
     byId['community-report'].start > byId['verification'].start && byId['community-report'].start < byId['verification'].end, true);
-  eq('FinalizeConversion cannot start before verification closes', byId['finalize'].start >= byId['verification'].end, true);
-  eq('SubmitShares follows FinalizeConversion', byId['submit-shares'].start >= byId['finalize'].end, true);
-  eq('gate check follows SubmitShares', byId['gate-check'].start >= byId['submit-shares'].end, true);
+  ok('there is no FinalizeConversion — FIP-0118 names no such method', !byId['finalize']);
+  eq('values bind when the verification window closes', byId['binding'].start - QE, VERIFY_END);
+  eq('SubmitShares waits for binding', byId['submit-shares'].deps.join(), 'binding');
+  eq('the gate check waits for binding', byId['gate-check'].deps.join(), 'binding');
+  ok('SubmitShares and the gate check are independent — either may run first',
+    !byId['submit-shares'].deps.includes('gate-check') && !byId['gate-check'].deps.includes('submit-shares'));
+  ok('and they are drawn as concurrent, not sequential',
+    byId['submit-shares'].start === byId['gate-check'].start,
+    'starts differ: ' + byId['submit-shares'].start + ' vs ' + byId['gate-check'].start);
   eq('the check itself is permissionless, per the spec actor column', byId['gate-check'].actor, 'permissionless');
   eq('the outcome sits in the volume gate lane', byId['gate-outcome'].actor, 'gate');
   eq('the outcome resolves at the timelock', byId['gate-outcome'].end - QE, TIMELOCK_END);
@@ -269,11 +301,12 @@ const allPass = () => new Array(GATES.length).fill(true);
   eq('every event carries relative timing', ev.every(e => e.rel && e.when), true);
 
   // absolute dates
-  eq('Q2 close date', fmtLong(dayMs(a, QE)), 'Apr 13, 2027');
-  eq('posting closes', fmtLong(dayMs(a, QE + POSTING_DAYS)), 'Apr 16, 2027');
-  eq('report due', fmtLong(dayMs(a, QE + REPORT_DUE)), 'Apr 20, 2027');
-  eq('verification closes', fmtLong(dayMs(a, QE + VERIFY_END)), 'Apr 23, 2027');
-  eq('timelock expires', fmtLong(dayMs(a, QE + TIMELOCK_END)), 'Apr 30, 2027');
+  // Offsets are day counts fixed by the FIP, independent of quarter length.
+  const dayOf = d => Math.round((dayMs(a, d) - a) / 86400000);
+  eq('posting closes 3 days after the close', dayOf(QE + POSTING_DAYS) - dayOf(QE), POSTING_DAYS);
+  eq('verification closes 10 days after the close', dayOf(QE + VERIFY_END) - dayOf(QE), VERIFY_END);
+  eq('the report is due 7 days after the close', dayOf(QE + REPORT_DUE) - dayOf(QE), REPORT_DUE);
+  eq('the timelock expires 17 days after the close', dayOf(QE + TIMELOCK_END) - dayOf(QE), TIMELOCK_END);
 
   // Q1: activation events, and no gate check
   const q1ev = eventsForQuarter(sc.quarters[0], sc, a);
@@ -285,7 +318,8 @@ const allPass = () => new Array(GATES.length).fill(true);
   ok('Q1 runs no gate check', !q1['gate-check'] && !!q1['gate-none']);
   eq('Q1 one-time events sit at activation', q1['genesis-seating'].start, 0);
   eq('declaration due within 7 days', q1['declaration'].end, 7);
-  eq('Q1 still runs the close cycle', !!q1['post-volume'] && !!q1['timelock'], true);
+  eq('Q1 runs posting, verification, binding and SubmitShares',
+    !!q1['post-volume'] && !!q1['verification'] && !!q1['binding'] && !!q1['submit-shares'], true);
   ok('later quarters carry no one-time events',
     eventsForQuarter(sc.quarters[4], sc, a).every(e => !e.oneTime));
 

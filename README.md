@@ -46,34 +46,48 @@ table under the Gantt, both reflecting the current scenario.
 activation date in the header and every date on the page — quarter boundaries, deadlines, timelock
 expiries — moves with it.
 
-Quarters are modelled as **90 days**. Real quarter length is set by `EPOCHS_PER_QUARTER`, so actual
-boundaries will drift from these dates.
+**Quarters here are 91.25 days, which is not the protocol value.** FIP-0118 §3.2 fixes
+`EPOCHS_PER_QUARTER` at 259,200 epochs — exactly 90 days at 30-second epochs — changeable only by an SRA
+code upgrade, so it does not drift with the calendar. The 91.25-day setting is deliberate (a
+calendar-average quarter) and makes every date on the page run ahead of the protocol by 1.25 days per
+quarter, roughly 11 days by Q9. To match the FIP, set `QUARTER_DAYS` back to `90` in the model block.
 
-The **3-day posting period, 7-day verification window and 7-day SWA_TIMELOCK are proposed
-governance-repo values, not parameters of the FIP.** Of the three, only SWA_TIMELOCK is enforced at L1.
-The Community Report deadline (7 days after a close) comes from governance repo doc 04 and overlaps the
-verification window. All of this is restated in the page's own Assumptions panel.
+The **3-day posting period and 7-day verification window are FIP values, not governance proposals**:
+`POST_PERIOD` is 8,640 epochs and `VERIFICATION_WINDOW` is 20,160 epochs, both initial mainnet values
+fixed at SRA deployment. `SWA_TIMELOCK` is likewise 7 days (20,160 epochs). What *is* a governance-repo
+value is the 7-day Quarterly Report deadline: the obligation is in the FIP, but the template, required
+disclosures and filing cadence live in the governance repository. All of this is restated in the page's
+own Assumptions panel.
 
-Two further simplifications, also stated on the page:
+Three further simplifications, also stated on the page:
 
-- Ordering **within** the post-verification window is indicative. Events after QE+10d are drawn dashed
-  and in dependency order; the FIP sets no per-step deadline between QE+10d and the timelock expiry.
+- Ordering **after QE+10d** is indicative. `SubmitShares` and `QuarterlyGateCheck` are explicitly
+  independent and may run in either order, and the FIP sets no per-step deadline between the window
+  closing and the timelock expiry. Dashed outlines mark that.
 - w2 steps are drawn **at the quarter boundary**. In practice a clearing gate is written to f02 after
-  QE+10d and only takes effect when SWA_TIMELOCK expires, roughly QE+17d.
+  QE+10d via `StepWeightRecords` and only takes effect when SWA_TIMELOCK expires, roughly QE+17d.
+- A figure that is never posted **binds as zero**, so a non-poster cannot block a quarter — the zero
+  simply depresses the gate. There is no retroactive clawback.
 
 ## Data sources
 
-- FIP-0118, as of August 2026.
-- Solstice governance repo docs 02, 03 and 04 — posting period, verification window, SRA and SWA duties,
-  and the Community Report obligation.
-- PR #1279 (transparency rules), in Draft as of August 2026. The genesis Orchestrator disclosure and the
-  Community Report obligations shown here depend on it merging.
+Everything here was checked against the FIP text on **4 September 2026**:
 
-Exact URLs are deliberately not baked into this file. Add them when it lands in the governance repo.
+- [FIP-0118](https://github.com/filecoin-project/FIPs/blob/master/FIPS/fip-0118.md) — status **Accepted**,
+  created 2026-07-14. The weight schedule, the gate ladder, the window durations, the method names and
+  the actors all come from here.
+- The [Solstice governance repository](https://github.com/filecoin-project/solstice-governance/) — the
+  Quarterly Report template and filing cadence, the disclosure requirements, admission and removal
+  criteria, the dispute procedure and the quarterly verification duty.
+- PR [#1279](https://github.com/filecoin-project/FIPs/pull/1279) ("FIP-0118: add Orchestrator
+  transparency rules") is **merged**, so the Initial Disclosure and the Service Orchestrator Quarterly
+  Report are FIP-level obligations rather than proposals.
 
-The eight gate targets are the values fixed at FIP time: $3,500, $9,450, $25,515, $68,891, $186,005,
-$502,213, $1,355,976, $3,661,135. `$3,500 × 2.7^n` (where `n = (w2 − 10%) / 5%`) reproduces them to
-within about 7 parts per million but not exactly, so the published integers are what the page uses.
+The eight gate targets are `VOL_TARGET_ENTRY × VOL_TARGET_RATIO^steps` = `$3,500 × 2.7^n`, and the FIP is
+explicit that this is exact arithmetic — "no rounding or flooring appears in the gate rule". They are
+therefore $3,500, $9,450, $25,515, **$68,890.50**, **$186,004.35**, **$502,211.745**,
+**$1,355,971.7115** and **$3,661,123.62105**. Earlier versions of this page carried these rounded to
+whole dollars, which was wrong for five of the eight.
 
 ## Running it
 

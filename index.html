@@ -647,19 +647,25 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
         <ol class="caveats">
           <li><strong>The activation date is an assumption.</strong> October 15, 2026 is a planning placeholder;
             FIP-0118 names no specific activation date or epoch. Change it above and every date on this page moves with it.</li>
-          <li><strong>Quarter length is ~90 days here.</strong> Actual length is set by <code>EPOCHS_PER_QUARTER</code>, so real
-            quarter boundaries will drift from these dates.</li>
-          <li><strong>The 3-day posting period, 7-day verification window and 7-day SWA_TIMELOCK are proposed
-            governance-repo values</strong>, not parameters of the FIP. Of the three, only SWA_TIMELOCK is enforced at L1.</li>
-          <li><strong>The Community Report deadline (7 days after quarter close)</strong> comes from governance repo doc 04
-            and overlaps the verification window.</li>
-          <li><strong>PR #1279 (transparency rules) was in Draft as of August 2026.</strong> The genesis disclosure and
-            Community Report obligations shown here depend on it merging.</li>
-          <li><strong>Ordering within the post-verification window is indicative.</strong> Events after QE+10d
-            (dashed outlines) are drawn in dependency order; the FIP sets no per-step deadline between QE+10d and the
-            timelock expiry.</li>
-          <li><strong>w2 steps are drawn at the quarter boundary.</strong> In practice a passing gate is written to f02 after
-            QE+10d and only takes effect when SWA_TIMELOCK expires, roughly QE+17d.</li>
+          <li><strong>This page is set to 91.25-day quarters, which is not the protocol value.</strong> FIP-0118 §3.2
+            fixes <code>EPOCHS_PER_QUARTER</code> at 259,200 epochs &mdash; exactly 90 days at 30-second epochs &mdash;
+            changeable only by an SRA code upgrade. Every date here therefore runs ahead of the protocol by 1.25 days
+            per quarter, about 11 days by Q9.</li>
+          <li><strong>The 3-day posting period and 7-day verification window are FIP values</strong>, not governance
+            proposals: <code>POST_PERIOD</code> is 8,640 epochs and <code>VERIFICATION_WINDOW</code> is 20,160 epochs,
+            both initial mainnet values fixed at SRA deployment. <code>SWA_TIMELOCK</code> is likewise 7 days.</li>
+          <li><strong>The 7-day Quarterly Report deadline is a governance-repo value.</strong> The obligation itself is
+            in the FIP; the template, required disclosures and filing cadence are defined in the governance repository.
+            The deadline overlaps the verification window.</li>
+          <li><strong>Ordering after QE+10d is indicative.</strong> <code>SubmitShares</code> and
+            <code>QuarterlyGateCheck</code> are explicitly independent and may run in either order; the FIP sets no
+            per-step deadline between the window closing and the timelock expiry. Dashed outlines mark that.</li>
+          <li><strong>w2 steps are drawn at the quarter boundary.</strong> In practice a clearing gate is written to f02
+            after QE+10d via <code>StepWeightRecords</code> and only takes effect when SWA_TIMELOCK expires, roughly
+            QE+17d. That write cannot be cancelled.</li>
+          <li><strong>A value that is never posted binds as zero.</strong> Whatever a figure is when the verification
+            window closes is final for the quarter, so a non-poster cannot block it &mdash; the zero simply depresses
+            the gate. There is no retroactive clawback.</li>
         </ol>
         </div>
       </details>
@@ -681,8 +687,10 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
   </main>
 
   <div class="footnote">
-    <span>Sources: FIP-0118 (as of Aug 2026); Solstice-Governance docs 02, 03, 04; PR #1279 (Draft).</span>
-    <span>Gate targets: $3,500 &times; 2.7<sup>n</sup>, n = (w2 &minus; 10%) / 5%.</span>
+    <span>Sources: <a href="https://github.com/filecoin-project/FIPs/blob/master/FIPS/fip-0118.md">FIP-0118</a>
+      (Accepted, created 2026-07-14; verified against the text on 4 Sep 2026) and the
+      <a href="https://github.com/filecoin-project/solstice-governance/">Solstice governance repository</a>.</span>
+    <span>Gate targets: $3,500 &times; 2.7<sup>n</sup>, n = (w2 &minus; 10%) / 5%, exact &mdash; the FIP applies no rounding.</span>
     <span id="permalinkWrap"><button type="button" class="btn btn-sm btn-ghost" id="permalink">Copy link to this scenario</button></span>
   </div>
 </div>
@@ -696,7 +704,14 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
 "use strict";
 
 const DAY_MS = 86400000;
-const QUARTER_DAYS = 90;          // planning approximation of EPOCHS_PER_QUARTER
+/* FIP-0118 fixes EPOCHS_PER_QUARTER at 259,200 epochs — exactly 90 days at
+   30-second epochs — changeable only by an SRA code upgrade. This page is
+   configured to 91.25 days (a calendar-average quarter) by request, so its
+   dates run ahead of the protocol by 1.25 days per quarter. Set this back to
+   90 to match the FIP. */
+const QUARTER_DAYS = 91.25;
+const FIP_EPOCHS_PER_QUARTER = 259200;
+const EPOCH_SECONDS = 30;
 const N_QUARTERS = 9;
 const TERMINAL_DAYS = 90;         // how much of the terminal state we draw
 
@@ -708,16 +723,22 @@ const W2_BASE = 0.10;             // service weight entering Q2
 const W2_STEP = 0.05;             // step per passed gate
 const W2_TERMINAL = 0.50;
 
-/* Volume gate ladder, fixed at FIP time: $3,500 x 2.7^n, n = (w2 - 10%) / 5% */
+/* Volume gate ladder, fixed at FIP time. VOL_TARGET_ENTRY = $3,500,
+   VOL_TARGET_RATIO = 2.7, ComputeTarget(steps) = 3500 x 2.7^steps, and the FIP
+   is explicit that this is exact arithmetic: "no rounding or flooring appears
+   in the gate rule, and the values listed above are the targets to full
+   precision." So these carry their decimals. */
+const VOL_TARGET_ENTRY = 3500;
+const VOL_TARGET_RATIO = 2.7;
 const GATES = [
   { n: 1, from: 0.10, to: 0.15, target: 3500 },
   { n: 2, from: 0.15, to: 0.20, target: 9450 },
   { n: 3, from: 0.20, to: 0.25, target: 25515 },
-  { n: 4, from: 0.25, to: 0.30, target: 68891 },
-  { n: 5, from: 0.30, to: 0.35, target: 186005 },
-  { n: 6, from: 0.35, to: 0.40, target: 502213 },
-  { n: 7, from: 0.40, to: 0.45, target: 1355976 },
-  { n: 8, from: 0.45, to: 0.50, target: 3661135 }
+  { n: 4, from: 0.25, to: 0.30, target: 68890.5 },
+  { n: 5, from: 0.30, to: 0.35, target: 186004.35 },
+  { n: 6, from: 0.35, to: 0.40, target: 502211.745 },
+  { n: 7, from: 0.40, to: 0.45, target: 1355971.7115 },
+  { n: 8, from: 0.45, to: 0.50, target: 3661123.62105 }
 ];
 
 /* Proposed governance-repo windows, in days after quarter end (QE) */
@@ -877,7 +898,23 @@ function fmtRange(activationMs, d0, d1) {
   const sameYear = new Date(a).getUTCFullYear() === new Date(b).getUTCFullYear();
   return (sameYear ? fmtShort(a) : fmtLong(a)) + ' – ' + fmtLong(b);
 }
-const fmtUSD = n => '$' + n.toLocaleString('en-US');
+/* The gate rule is exact arithmetic, so a target is never rounded for display:
+   show exactly the decimals the value has. */
+const usdDigits = n => {
+  const dot = String(n).indexOf('.');
+  return dot < 0 ? 0 : Math.min(20, String(n).length - dot - 1);
+};
+const fmtUSD = n => '$' + n.toLocaleString('en-US', {
+  minimumFractionDigits: 0, maximumFractionDigits: usdDigits(n)
+});
+/* Where a target has to fit a chip, abbreviate it VISIBLY rather than
+   truncating it — "$502k" cannot be mistaken for the exact figure the way
+   "$502,211.75" can. */
+const fmtUSDShort = n =>
+  n >= 1e6 ? '$' + (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M'
+  : n >= 1e5 ? '$' + Math.round(n / 1e3) + 'k'
+  : n >= 1e4 ? '$' + (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
+  : '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const fmtPct = v => { const x = Math.round(v * 1000) / 10; return (Number.isInteger(x) ? x.toFixed(0) : x.toFixed(1)) + '%'; };
 
 /* ---------- events ---------- */
@@ -895,10 +932,10 @@ function eventsForQuarter(q, scenario, activationMs) {
 
   if (q.bootstrap) {
     ev.push({
-      id: 'genesis-disclosure', actor: 'sra', name: 'Genesis Orchestrator disclosure', kind: 'milestone',
-      start: 0, end: 0, rel: 'By activation', when: at(0),
-      desc: 'Registry Safes publish the genesis Orchestrator disclosure before the mechanism goes live.',
-      source: 'Gov repo 04; depends on PR #1279 (Draft as of Aug 2026)', oneTime: true
+      id: 'genesis-disclosure', actor: 'orchestrator', name: 'Initial Disclosure', kind: 'milestone',
+      start: 0, end: 0, rel: 'On activation', when: at(0),
+      desc: 'The Orchestrator seated by the migration is fixed by state, not by AddOrchestrator, so it publishes a disclosure on activation to carry the same public scrutiny an AddOrchestrator call would.',
+      source: 'FIP-0118 §4 (Initial Disclosure); requirements in the governance repository', oneTime: true
     });
     ev.push({
       id: 'genesis-seating', actor: 'protocol', name: 'Genesis Orchestrator seated', kind: 'milestone',
@@ -923,14 +960,14 @@ function eventsForQuarter(q, scenario, activationMs) {
   ev.push({
     id: 'post-volume', actor: 'orchestrator', name: 'PostVolume', kind: 'bar',
     start: QE, end: QE + POSTING_DAYS, rel: 'QE → QE+3d', when: span(QE, QE + POSTING_DAYS),
-    desc: 'Post the FPV components — stablecoin USD plus the FIL per-period vector — to the SRA. One post, and only inside the posting period.',
-    source: 'FIP-0118; posting period (3d) proposed in Gov repo 02'
+    desc: 'Post FPV_i(Q) to the SRA. The FIL-to-USD conversion happens off-chain, before this: what is posted is one USD total per Orchestrator. One post, and only inside the posting period.',
+    source: 'FIP-0118 §2.2; POST_PERIOD = 8,640 epochs (3 days), fixed at SRA deployment'
   });
   ev.push({
     id: 'verification', actor: 'sra', name: 'Verification window', kind: 'bar',
     start: QE + POSTING_DAYS, end: QE + VERIFY_END, rel: 'QE+3d → QE+10d', when: span(QE + POSTING_DAYS, QE + VERIFY_END),
-    desc: 'SRA Governance recomputes the FPV from public settlement events using the reference indexer, and calls CorrectVolume for any misreport or missing figure.',
-    source: 'FIP-0118; verification window (7d) proposed in Gov repo 02, 03', deps: ['post-volume']
+    desc: 'Every posted value is public and recomputable by anyone. A mismatch or a missing value is flagged in the governance repository, and SRA Governance corrects a wrong figure or supplies the recomputed one via CorrectVolume.',
+    source: 'FIP-0118 §2.2; VERIFICATION_WINDOW = 20,160 epochs (7 days), fixed at SRA deployment', deps: ['post-volume']
   });
   ev.push({
     id: 'self-monitor', actor: 'orchestrator', name: 'Self-monitor & reconcile', kind: 'bar',
@@ -939,22 +976,22 @@ function eventsForQuarter(q, scenario, activationMs) {
     source: 'Gov repo 03 (Orchestrator obligations)', deps: ['post-volume']
   });
   ev.push({
-    id: 'community-report', actor: 'orchestrator', name: 'Community Report due', kind: 'milestone',
+    id: 'community-report', actor: 'orchestrator', name: 'Quarterly Report due', kind: 'milestone',
     start: QE + REPORT_DUE, end: QE + REPORT_DUE, rel: 'By QE+7d', when: at(QE + REPORT_DUE),
-    desc: 'File the quarterly report in the governance repo. A binary obligation: missing the deadline or omitting required fields opens a public issue, with 7 days to remedy before removal is triggered.',
-    source: 'Gov repo 04; depends on PR #1279 (Draft as of Aug 2026)', flag: 'deadline'
+    desc: 'Each Orchestrator shares a Service Orchestrator Quarterly Report using the template in the governance repository. Failure to file is a removal trigger and forfeits re-admission for the following quarter.',
+    source: 'FIP-0118 §4 (Service Orchestrator Quarterly Report); template and filing cadence in the governance repository', flag: 'deadline'
   });
   ev.push({
-    id: 'finalize', actor: 'permissionless', name: 'FinalizeConversion', kind: 'bar',
-    start: QE + VERIFY_END, end: QE + VERIFY_END + 1.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
-    desc: 'Converts bound FIL volumes to USD at qualifying fee-auction prints. Idempotent, and auto-triggered by the first consumer that needs the result.',
-    source: 'FIP-0118 (FinalizeConversion)', deps: ['verification'], indicative: true
+    id: 'binding', actor: 'sra', name: 'Values bind', kind: 'milestone',
+    start: QE + VERIFY_END, end: QE + VERIFY_END, rel: 'QE+10d', when: at(QE + VERIFY_END),
+    desc: 'Whatever each value is when the window closes binds, and bound values are final for the quarter. A value neither posted nor supplied binds as 0, so a non-poster cannot block the quarter — the zero simply depresses the gate. There is no retroactive clawback.',
+    source: 'FIP-0118 §2.2 (binding)', deps: ['verification'], flag: 'deadline'
   });
   ev.push({
     id: 'submit-shares', actor: 'permissionless', name: 'SubmitShares', kind: 'bar',
-    start: QE + VERIFY_END + 2.1, end: QE + VERIFY_END + 3.9, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
-    desc: 'Computes each Orchestrator\u2019s share via SplitRule and writes the wallet-to-share map to f02 through SetShares.',
-    source: 'FIP-0118 (SplitRule, SetShares)', deps: ['finalize'], indicative: true
+    start: QE + VERIFY_END + 0.4, end: QE + VERIFY_END + 2.6, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: 'Permissionless. Computes each Orchestrator\u2019s share from the bound values and writes the wallet-to-share map to f02 via SetShares. Operates on the latest bound quarter, so an older quarter can never overwrite a newer one.',
+    source: 'FIP-0118 §3.2 (SubmitShares, SetShares)', deps: ['binding'], indicative: true
   });
 
   if (q.gate) {
@@ -962,17 +999,18 @@ function eventsForQuarter(q, scenario, activationMs) {
     const retry = g.attempt > 1 ? ' This is attempt ' + g.attempt + ' at the same target.' : '';
     ev.push({
       id: 'gate-check', actor: 'permissionless', name: 'QuarterlyGateCheck', kind: 'bar',
-      start: QE + VERIFY_END + 4.2, end: QE + VERIFY_END + 5.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+      start: QE + VERIFY_END + 0.4, end: QE + VERIFY_END + 2.6, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
       desc: 'Tests whether AggregatedFPV \u2265 ' + fmtUSD(g.target) + ', the target for gate ' + g.n
         + ' (the step from w2 ' + fmtPct(g.from) + ' to ' + fmtPct(g.to) + ').' + retry
-        + ' If it clears, the SWA writes the new w2 to f02.',
-      source: 'FIP-0118 (volume gate); target = $3,500 \u00d7 2.7^' + (g.n - 1),
-      deps: ['finalize'], indicative: true
+        + ' Permissionless, and independent of SubmitShares — either may run first. If it clears,'
+        + ' the SWA writes the new w2 to f02 via StepWeightRecords, which cannot be cancelled.',
+      source: 'FIP-0118 §3.1.1 (QuarterlyGateCheck); target = $3,500 \u00d7 2.7^' + (g.n - 1),
+      deps: ['binding'], indicative: true
     });
     ev.push({
       id: 'gate-outcome', actor: 'gate',
       name: 'Gate ' + g.n + ' \u00b7 ' + fmtUSD(g.target) + ' \u00b7 ' + (g.passed ? 'clears' : 'missed'), kind: 'bar',
-      start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END, rel: 'Outcome in this scenario',
+      start: QE + VERIFY_END + 3.0, end: QE + TIMELOCK_END, rel: 'Outcome in this scenario',
       when: g.passed ? 'Takes effect ' + at(QE + TIMELOCK_END) : 'No effect at this close',
       desc: (g.passed
         ? 'In this scenario the quarter clears ' + fmtUSD(g.target) + ', so w2 steps from ' + fmtPct(g.from) + ' to ' + fmtPct(g.to) + '.'
@@ -988,21 +1026,21 @@ function eventsForQuarter(q, scenario, activationMs) {
       id: 'gate-none', actor: 'gate', name: q.bootstrap ? 'No gate check at this close' : 'No rung left to attempt', kind: 'note',
       start: QE + VERIFY_END + 4.2, end: QE + TIMELOCK_END, rel: 'n/a', when: '\u2014',
       desc: q.bootstrap
-        ? 'The bootstrap quarter runs no QuarterlyGateCheck. w2 enters Q2 at 10% by construction, not by clearing a gate.'
-        : 'w2 has already reached its terminal 50%, so there is no further rung to attempt.',
-      source: 'FIP-0118'
+        ? 'Posting, verification, binding and SubmitShares run as in any other quarter; only QuarterlyGateCheck is skipped, because the bootstrap ramp performs the 5% to 10% move on its own.'
+        : 'w2 rests at its terminal 50%, so the ladder is done — the gate rule requires steps < 8.',
+      source: 'FIP-0118 §2.2'
     });
   }
 
   ev.push({
     id: 'confirm-pipeline', actor: 'sra', name: 'Confirm pipeline ran', kind: 'bar',
-    start: QE + VERIFY_END + 4.0, end: QE + VERIFY_END + 6.6, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
-    desc: 'SRA Governance verifies that FinalizeConversion, SubmitShares and the gate check have run, and checks the integrity of the wallet-to-share map.',
+    start: QE + VERIFY_END + 3.0, end: QE + VERIFY_END + 5.6, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    desc: 'SRA Governance verifies that SubmitShares and the gate check have run, and checks the integrity of the wallet-to-share map.',
     source: 'Gov repo 03 (SRA duties)', deps: ['submit-shares'], indicative: true
   });
   ev.push({
     id: 'confirm-mechanism', actor: 'swa', name: 'Confirm mechanism write', kind: 'bar',
-    start: QE + VERIFY_END + 5.8, end: QE + TIMELOCK_END - 0.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
+    start: QE + VERIFY_END + 4.0, end: QE + TIMELOCK_END - 0.8, rel: 'On or after QE+10d', when: 'On or after ' + at(QE + VERIFY_END),
     desc: q.gate && q.gate.passed
       ? 'The gate cleared, so SWA Governance confirms the queued w2 write matches the gate rule. The write is non-cancellable once queued.'
       : (q.bootstrap
@@ -1017,7 +1055,7 @@ function eventsForQuarter(q, scenario, activationMs) {
     desc: q.gate && q.gate.passed
       ? 'The new w2 of ' + fmtPct(q.gate.to) + ' takes effect at f02. The 7-day hold is for visibility only — mechanism writes cannot be cancelled during it.'
       : 'Nothing takes effect at this close: no w2 write was queued. The hold exists for visibility on writes that are queued.',
-    source: 'FIP-0118 (f02, SWA_TIMELOCK); 7-day hold proposed in Gov repo', deps: ['confirm-mechanism'],
+    source: 'FIP-0118 §2.4 (f02, SWA_TIMELOCK = 7 days)', deps: ['confirm-mechanism'],
     muted: !(q.gate && q.gate.passed)
   });
 
@@ -1041,10 +1079,11 @@ const DEFAULT_ACTIVATION = '2026-10-15';
 const MODEL = {
   DAY_MS, QUARTER_DAYS, N_QUARTERS, TERMINAL_DAYS, TOTAL_DAYS,
   W1_START, W1_FLOOR, W2_BOOTSTRAP, W2_BASE, W2_STEP, W2_TERMINAL,
-  GATES, POSTING_DAYS, VERIFY_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_DAYS, TIMELOCK_END,
+  GATES, VOL_TARGET_ENTRY, VOL_TARGET_RATIO, FIP_EPOCHS_PER_QUARTER, EPOCH_SECONDS,
+  POSTING_DAYS, VERIFY_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_DAYS, TIMELOCK_END,
   ACTORS, LANE_ORDER, STANDING, DEFAULT_ACTIVATION,
   w1AtDay, w2AtDay, weightsAtDay, computeScenario, bandVertices, eventsForQuarter,
-  parseISODate, toISODate, dayMs, fmtLong, fmtShort, fmtTick, fmtRange, fmtUSD, fmtPct
+  parseISODate, toISODate, dayMs, fmtLong, fmtShort, fmtTick, fmtRange, fmtUSD, fmtUSDShort, fmtPct
 };
 /* ==================== MODEL END ==================== */
 
@@ -1242,7 +1281,7 @@ function chipFor(q) {
   btn.appendChild(tag('div', 'chip-dates detail-only',
     fmtShort(qDate(q.startDay)) + ' – ' + fmtShort(qDate(q.endDay))));
   btn.appendChild(tag('div', 'chip-meta detail-only', q.gate
-    ? fmtUSD(q.gate.target) + (q.gate.attempt > 1 ? ' · try ' + q.gate.attempt : '')
+    ? fmtUSDShort(q.gate.target) + (q.gate.attempt > 1 ? ' · try ' + q.gate.attempt : '')
     : (q.bootstrap ? 'bootstrap' : 'w2 at max')));
   wrap.appendChild(btn);
 

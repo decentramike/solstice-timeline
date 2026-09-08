@@ -20,6 +20,7 @@ const MODEL = new Function(src + '\n return MODEL;')();
 const {
   QUARTER_DAYS, GATES, W2_TERMINAL, POSTING_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_END,
   VOL_TARGET_ENTRY, VOL_TARGET_RATIO, FIP_EPOCHS_PER_QUARTER, EPOCH_SECONDS, N_QUARTERS, TOTAL_DAYS,
+  W1_PER_QUARTER, W2_BASE, W2_STEP,
   computeScenario, bandVertices, weightsAtDay, eventsForQuarter, parseISODate, dayMs, fmtLong,
   DEFAULT_ACTIVATION, ACTORS, LANE_ORDER
 } = MODEL;
@@ -41,29 +42,68 @@ const allPass = () => new Array(GATES.length).fill(true);
 {
   const sc = computeScenario(allPass());
   // Quarter, w1 start, w1 end, w2, w0 start, w0 end  (percentages)
+  // w1 start/end, then w2 start/end, then w0 start/end — all at the quarter's
+  // own boundaries. w2 steps 17 days INTO the quarter, so start and end differ
+  // from Q3 on, and the endpoints alone no longer show the sawtooth.
   const table = [
-    [1, 95, 90, null, 0, 0],
-    [2, 90, 85, 10, 0, 5],
-    [3, 85, 80, 15, 0, 5],
-    [4, 80, 75, 20, 0, 5],
-    [5, 75, 70, 25, 0, 5],
-    [6, 70, 65, 30, 0, 5],
-    [7, 65, 60, 35, 0, 5],
-    [8, 60, 55, 40, 0, 5],
-    [9, 55, 50, 45, 0, 5]
+    [1, 95, 90,  5, 10, 0, 0],
+    [2, 90, 85, 10, 10, 0, 5],
+    [3, 85, 80, 10, 15, 5, 5],
+    [4, 80, 75, 15, 20, 5, 5],
+    [5, 75, 70, 20, 25, 5, 5],
+    [6, 70, 65, 25, 30, 5, 5],
+    [7, 65, 60, 30, 35, 5, 5],
+    [8, 60, 55, 35, 40, 5, 5],
+    [9, 55, 50, 40, 45, 5, 5]
   ];
-  for (const [n, w1s, w1e, w2, w0s, w0e] of table) {
+  for (const [n, w1s, w1e, w2s, w2e, w0s, w0e] of table) {
     const q = sc.quarters[n - 1];
     eq('Q' + n + ' w1 start', pc(q.w1Start), w1s);
     eq('Q' + n + ' w1 end', pc(q.w1End), w1e);
+    eq('Q' + n + ' w2 start', pc(q.w2Start), w2s);
+    eq('Q' + n + ' w2 end', pc(q.w2End), w2e);
     eq('Q' + n + ' w0 start', pc(q.w0Start), w0s);
     eq('Q' + n + ' w0 end', pc(q.w0End), w0e);
-    if (w2 == null) {
-      eq('Q1 w2 ramps 5 to 10', pc(q.w2Start) + '→' + pc(q.w2End), '5→10');
-    } else {
-      eq('Q' + n + ' w2', pc(q.w2Start), w2);
-    }
   }
+
+  /* ---- the 17-day write lag ---- */
+  const L = TIMELOCK_END, Qd = QUARTER_DAYS;
+  eq('a cleared gate lands 17 days after the close', L, 17);
+  eq('the lag costs w1 5pp x 17/91.25', pc(sc.lagBurn), pc(W1_PER_QUARTER * (L / Qd)));
+  eq('which is 0.93 points', Math.round(sc.lagBurn * 10000) / 100, 0.93);
+  // Burn never returns to a true zero once the bootstrap clamp lets go.
+  eq('the sawtooth floor is the lag burn, not zero', pc(sc.burnFloor), pc(sc.lagBurn));
+  eq('and its peak is 5pp above that', pc(sc.burnPeak), pc(W1_PER_QUARTER * (1 + L / Qd)));
+  eq('peak in points', Math.round(sc.burnPeak * 10000) / 100, 5.93);
+  ok('no instant after the Q1 boundary burns zero, even clearing every gate',
+    bandVertices(sc).filter(v => v.day > Qd && v.day < sc.terminal.day).every(v => v.w0 > 1e-9),
+    'a zero-burn instant survives inside the ramp');
+  // The step lands inside the next quarter, so the level holds for 17 days.
+  for (let k = 2; k <= 9; k++) {
+    const land = k * Qd + L;
+    eq('Q' + k + ' gate has not landed at its own close',
+      pc(weightsAtDay(k * Qd, sc).w2), pc(W2_BASE + (k - 2) * W2_STEP));
+    eq('Q' + k + ' gate has landed by close plus 17 days',
+      pc(weightsAtDay(land, sc).w2), pc(W2_BASE + (k - 1) * W2_STEP));
+    ok('Q' + k + ' burn drops exactly 5 points when it lands',
+      Math.abs((weightsAtDay(land - 1e-6, sc).w0 - weightsAtDay(land, sc).w0) - W1_PER_QUARTER) < 1e-6);
+  }
+  // Terminal is reached 17 days after the last close, not at it.
+  eq('terminal arrives 17 days after the Q9 close', sc.terminal.day - sc.terminal.closeDay, L);
+  eq('at the Q9 close w2 is still one rung short', pc(weightsAtDay(sc.terminal.closeDay, sc).w2), 45);
+  eq('and 5% is still burning then', pc(weightsAtDay(sc.terminal.closeDay, sc).w0), 5);
+
+  /* ---- funding quarters: the same windows, 17 days later ---- */
+  for (let k = 2; k <= 9; k++) {
+    const q = sc.quarters[k - 1];
+    eq('Q' + k + ' funding window opens 17 days after its measurement window',
+      q.fundFrom - q.startDay, L);
+    eq('Q' + k + ' funding window is a full quarter long',
+      Math.round((q.fundTo - q.fundFrom) * 100) / 100, Qd);
+    eq('Q' + k + ' is funded at one level throughout',
+      pc(weightsAtDay(q.fundFrom + 0.001, sc).w2), pc(weightsAtDay(q.fundTo - 0.001, sc).w2));
+  }
+  eq('Q1 is funded from activation, having no gate behind it', sc.quarters[0].fundFrom, 0);
   eq('bootstrap flag only on Q1', sc.quarters.filter(q => q.bootstrap).length, 1);
   eq('terminal w1', pc(sc.terminal.w1), 50);
   eq('terminal w2', pc(sc.terminal.w2), 50);
@@ -112,11 +152,11 @@ const allPass = () => new Array(GATES.length).fill(true);
   // Fail the check at the Q2 close: w2 holds at 10% and Q3 re-attempts gate 1.
   const p = allPass(); p[0] = false;
   const sc = computeScenario(p);
-  eq('fail at Q2: Q3 w2 still 10%', pc(sc.quarters[2].w2Start), 10);
+  eq('fail at Q2: Q3 is still funded at 10%', pc(sc.quarters[2].w2End), 10);
   eq('fail at Q2: Q3 re-attempts gate 1', sc.quarters[2].gate.n, 1);
   eq('fail at Q2: Q3 target unchanged', sc.quarters[2].gate.target, 3500);
   eq('fail at Q2: Q3 burn grows to 10% by close', pc(sc.quarters[2].w0End), 10);
-  eq('fail at Q2: Q4 w2 steps to 15% (not 20%)', pc(sc.quarters[3].w2Start), 15);
+  eq('fail at Q2: Q4 is funded at 15% (not 20%)', pc(sc.quarters[3].w2End), 15);
   eq('fail at Q2: Q4 attempts gate 2', sc.quarters[3].gate.n, 2);
   eq('fail at Q2: Q4 target', sc.quarters[3].gate.target, 9450);
   eq('fail at Q2: terminal w2', pc(sc.terminal.w2), 45);
@@ -128,7 +168,7 @@ const allPass = () => new Array(GATES.length).fill(true);
   // Two consecutive misses, then back on schedule.
   const p = allPass(); p[0] = false; p[1] = false;
   const sc = computeScenario(p);
-  eq('fail Q2+Q3: Q4 w2 held', pc(sc.quarters[3].w2Start), 10);
+  eq('fail Q2+Q3: Q4 still funded at 10%', pc(sc.quarters[3].w2End), 10);
   eq('fail Q2+Q3: Q4 re-attempts gate 1', sc.quarters[3].gate.n, 1);
   eq('fail Q2+Q3: Q4 burn at close', pc(sc.quarters[3].w0End), 15);
   eq('fail Q2+Q3: terminal w2', pc(sc.terminal.w2), 40);
@@ -139,7 +179,7 @@ const allPass = () => new Array(GATES.length).fill(true);
   // Every gate missed: w2 pinned at the entry value, burn absorbs the whole ramp.
   const sc = computeScenario(new Array(GATES.length).fill(false));
   for (let k = 2; k <= 9; k++) {
-    eq('all fail: Q' + k + ' w2 10%', pc(sc.quarters[k - 1].w2Start), 10);
+    eq('all fail: Q' + k + ' funded at 10%', pc(sc.quarters[k - 1].w2End), 10);
     eq('all fail: Q' + k + ' still attempts gate 1', sc.quarters[k - 1].gate.n, 1);
   }
   eq('all fail: terminal w2', pc(sc.terminal.w2), 10);
@@ -153,7 +193,7 @@ const allPass = () => new Array(GATES.length).fill(true);
   const sc = computeScenario(p);
   eq('late passes: Q8 attempts gate 1', sc.quarters[7].gate.n, 1);
   eq('late passes: Q9 attempts gate 2', sc.quarters[8].gate.n, 2);
-  eq('late passes: Q9 w2 is 15%', pc(sc.quarters[8].w2Start), 15);
+  eq('late passes: Q9 is funded at 15%', pc(sc.quarters[8].w2End), 15);
   eq('late passes: terminal w2', pc(sc.terminal.w2), 20);
   eq('late passes: terminal w0', pc(sc.terminal.w0), 30);
 }
@@ -180,7 +220,7 @@ const allPass = () => new Array(GATES.length).fill(true);
       ok('w1 within 50-95%', v.w1 >= 0.5 - 1e-9 && v.w1 <= 0.95 + 1e-9);
       ok('w2 within 5-50%', v.w2 >= 0.05 - 1e-9 && v.w2 <= 0.5 + 1e-9);
     }
-    eq('vertex count is scenario-independent (mask ' + mask + ')', bandVertices(sc).length, 20);
+    eq('vertex count is scenario-independent (mask ' + mask + ')', bandVertices(sc).length, bandVertices(computeScenario(allPass())).length);
     eq('passes counted (mask ' + mask + ')', sc.terminal.gatesPassed, p.filter(Boolean).length);
     checked++;
   }

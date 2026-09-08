@@ -19,7 +19,8 @@ reporting, verification and governance actions with hard deadlines.
 ## What the timeline shows
 
 - **Weight evolution** — a stacked area chart of w1/w2/w0 across all nine quarters plus the terminal
-  state, with a gate marker at each quarter close.
+  state, with a gate marker at each quarter close and a caret where each cleared gate actually lands,
+  17 days later.
 - **A scenario builder in the quarter strip** — each quarter's chip carries both its own controls: the
   chip selects the quarter, and the gate badge on it flips that quarter's gate between clears and missed.
   Flipping one holds w2 from that close onward, grows the burn band, and re-attempts *the same target* at
@@ -39,6 +40,25 @@ reporting, verification and governance actions with hard deadlines.
 
 Both charts have text equivalents: a live weight-schedule table under the chart and a per-quarter event
 table under the Gantt, both reflecting the current scenario.
+
+## Two senses of "quarter"
+
+The page distinguishes them, because they are 17 days apart and Orchestrators care about the second:
+
+1. A **measurement quarter** is 91.25 days from activation. It is the window FPV is measured over for
+   gate purposes.
+2. A **funding quarter** is that same window shifted 17 days later. From Q2 onward it is the window an
+   Orchestrator is actually paid across, and w2 is constant for a full 91.25 days from that alignment —
+   because a gate result cannot take effect any sooner.
+
+`QuarterlyGateCheck` is callable only once the verification window closes (QE+10d), and the
+`StepWeightRecords` write it makes then queues for the 7-day `SWA_TIMELOCK`. So a cleared gate lands at
+**QE+17d at the earliest**.
+
+One consequence worth stating plainly: **burn never returns to zero after the bootstrap quarter, even if
+every gate clears.** w1 keeps ramping through those 17 days while w2 waits, so at the moment a write
+lands there is still `5pp × 17/91.25 = 0.93%` burning. The sawtooth runs between **0.93% and 5.93%**,
+and the terminal 50/50/0 split arrives 17 days after the Q9 close rather than at it.
 
 ## Dates are assumptions, not protocol
 
@@ -64,10 +84,11 @@ Three further simplifications, also stated on the page:
 - Ordering **after QE+10d** is indicative. `SubmitShares` and `QuarterlyGateCheck` are explicitly
   independent and may run in either order, and the FIP sets no per-step deadline between the window
   closing and the timelock expiry. Dashed outlines mark that.
-- w2 steps are drawn **at the quarter boundary**. In practice a clearing gate is written to f02 after
-  QE+10d via `StepWeightRecords` and only takes effect when SWA_TIMELOCK expires, roughly QE+17d.
 - A figure that is never posted **binds as zero**, so a non-poster cannot block a quarter — the zero
   simply depresses the gate. There is no retroactive clawback.
+- **17 days is a floor, not a fixed lag.** `QuarterlyGateCheck` is permissionless and nothing requires it
+  to run promptly — the FIP notes that late cranks self-heal — so every day of delay pushes the write
+  later and eats into the next funding quarter. This page models the floor.
 
 ## Data sources
 

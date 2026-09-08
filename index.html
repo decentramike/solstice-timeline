@@ -319,6 +319,7 @@ input[type="date"] {
 .band-w0 { fill: var(--w0-fill); stroke: var(--w0); }
 .band { stroke-width: 1.25; }
 .qlabel { font-weight: 600; fill: var(--text-3); }
+.fund-tick { fill: var(--w2-edge); }
 .tick { font-size: 11px; }
 
 /* gate marker */
@@ -576,6 +577,7 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
         <span class="legend-item"><span class="swatch" style="background:var(--w1-fill);outline:1px solid var(--w1)"></span> w1 consensus</span>
         <span class="legend-item"><span class="swatch" style="background:var(--w2-fill);outline:1px solid var(--w2)"></span> w2 service</span>
         <span class="legend-item"><span class="swatch" style="background:repeating-linear-gradient(45deg,var(--w0-fill) 0 3px,var(--w0-edge) 3px 5px);outline:1px solid var(--w0)"></span> w0 burn</span>
+        <span class="legend-item detail-only"><svg width="9" height="7" viewBox="0 0 9 7" aria-hidden="true"><path d="M0 7L4.5 0L9 7Z" fill="var(--w2-edge)"></path></svg> funding quarter starts (+17d)</span>
         <span class="legend-item" id="ghostLegend" hidden><span class="swatch" style="background:transparent;border-top:2px dashed var(--w2);height:0;border-radius:0"></span> best case</span>
       </div>
       <p class="caption detail-only" id="macroCaption"></p>
@@ -660,9 +662,23 @@ ol.caveats strong { color: var(--text); font-weight: 600; }
           <li><strong>Ordering after QE+10d is indicative.</strong> <code>SubmitShares</code> and
             <code>QuarterlyGateCheck</code> are explicitly independent and may run in either order; the FIP sets no
             per-step deadline between the window closing and the timelock expiry. Dashed outlines mark that.</li>
-          <li><strong>w2 steps are drawn at the quarter boundary.</strong> In practice a clearing gate is written to f02
-            after QE+10d via <code>StepWeightRecords</code> and only takes effect when SWA_TIMELOCK expires, roughly
-            QE+17d. That write cannot be cancelled.</li>
+          <li><strong>&ldquo;Quarter&rdquo; means two different windows, 17 days apart.</strong> A
+            <em>measurement</em> quarter is 91.25 days from activation and is what FPV is measured over for the gate. A
+            <em>funding</em> quarter is that same window shifted 17 days later, and it is the one an Orchestrator is
+            paid across: from Q2 onward w2 is constant for a full 91.25 days from that offset alignment, because a
+            gate result cannot take effect any sooner. The chart steps w2 at the funding boundary and marks it with a
+            caret on the axis; the chips and the quarter line give both windows.</li>
+          <li><strong>Burn never returns to zero after the bootstrap quarter, even clearing every gate.</strong>
+            <code>QuarterlyGateCheck</code> is callable only once the verification window closes (QE+10d) and its
+            <code>StepWeightRecords</code> write then queues for the 7-day <code>SWA_TIMELOCK</code>, so a cleared
+            gate lands at QE+17d at the earliest. w1 keeps ramping through those 17 days while w2 waits, which leaves
+            at least 5pp &times; 17/91.25 = 0.93% burning at the moment the write lands. The sawtooth therefore runs
+            between 0.93% and 5.93%, not 0% and 5%. That write cannot be cancelled.</li>
+          <li><strong>17 days is a floor, not a fixed lag.</strong> The gate check is permissionless and nothing
+            requires it to run promptly &mdash; the FIP notes that late cranks self-heal. Every day of delay in
+            submitting it pushes the write later and eats into the next funding quarter. This page models the floor.
+            <em>Open governance question, not protocol:</em> this argues for SRA Governance owning the crank &mdash;
+            not a multisig, just a funded wallet submitting it as soon as the verification window closes.</li>
           <li><strong>A value that is never posted binds as zero.</strong> Whatever a figure is when the verification
             window closes is final for the quarter, so a non-poster cannot block it &mdash; the zero simply depresses
             the gate. There is no retroactive clawback.</li>
@@ -758,16 +774,27 @@ function w1AtDay(day) {
 }
 
 /* Interpolate the service weight in force at a day offset. */
+/*
+  Service weight at a day offset.
+
+  w2 does NOT step at the quarter boundary. QuarterlyGateCheck is callable only
+  once the verification window closes (QE+10d) and its StepWeightRecords write
+  queues for SWA_TIMELOCK (7 more days), so a cleared gate lands at QE+17d at
+  the earliest. Through those 17 days w1 keeps ramping while w2 holds — which is
+  why burn never returns to a true zero after the bootstrap quarter.
+*/
 function w2AtDay(day, scenario) {
   if (day <= 0) return W2_BOOTSTRAP;
-  for (const q of scenario.quarters) {
-    if (day <= q.endDay) {
-      if (!q.bootstrap) return q.w2Start;
-      const t = (day - q.startDay) / QUARTER_DAYS;
-      return r6(q.w2Start + t * (q.w2End - q.w2Start));
-    }
+  /* Bootstrap: w2 mirrors w1's fall, clamped at W2_BASE, which it reaches
+     exactly at the Q1 boundary. Nothing burns while the clamp is doing it. */
+  if (day < QUARTER_DAYS) {
+    return r6(W2_BOOTSTRAP + (W2_BASE - W2_BOOTSTRAP) * (day / QUARTER_DAYS));
   }
-  return scenario.terminal.w2;
+  let steps = 0;
+  for (const q of scenario.quarters) {
+    if (q.gate && q.gate.passed && day >= q.endDay + TIMELOCK_END) steps++;
+  }
+  return r6(W2_BASE + steps * W2_STEP);
 }
 
 function weightsAtDay(day, scenario) {
@@ -777,6 +804,42 @@ function weightsAtDay(day, scenario) {
   return { w1, w2, w0: r6(Math.max(0, 1 - w1 - w2)) };
 }
 
+/* Breakpoints of the piecewise geometry: quarter boundaries, plus a doubled
+   vertex at every step-landing day so the jump is vertical. The set does not
+   depend on which gates clear — only the y values do — so the vertex count is
+   constant and the chart can tween between scenarios. */
+function buildVertices(quarters, terminal) {
+  const at = day => {
+    const w2 = w2Level(quarters, day);
+    const w1 = w1AtDay(day);
+    return { day, w1, w2, w0: r6(Math.max(0, 1 - w1 - w2)) };
+  };
+  const v = [at(0), at(QUARTER_DAYS)];
+  for (let k = 2; k <= N_QUARTERS; k++) {
+    const land = k * QUARTER_DAYS + TIMELOCK_END;
+    v.push(at(k * QUARTER_DAYS));
+    v.push(at(land - 1e-9));   // just before the write lands
+    v.push(at(land));          // and just after
+  }
+  v.push(at(terminal.day));
+  v.push(at(N_QUARTERS * QUARTER_DAYS + TERMINAL_DAYS));
+  return v;
+}
+
+/* w2 in force on a given day, from a quarter list (used before the scenario
+   object exists). */
+function w2Level(quarters, day) {
+  if (day <= 0) return W2_BOOTSTRAP;
+  if (day < QUARTER_DAYS) {
+    return r6(W2_BOOTSTRAP + (W2_BASE - W2_BOOTSTRAP) * (day / QUARTER_DAYS));
+  }
+  let steps = 0;
+  for (const q of quarters) {
+    if (q.gate && q.gate.passed && day >= q.endDay + TIMELOCK_END) steps++;
+  }
+  return r6(W2_BASE + steps * W2_STEP);
+}
+
 /*
   Build a full scenario from 8 gate outcomes.
 
@@ -784,10 +847,16 @@ function weightsAtDay(day, scenario) {
   (Q1 runs no gate check). Which gate that check attempts is not the quarter
   number: the ladder is keyed to the service weight, so a failed check
   re-attempts the same target the following quarter and nothing is skipped.
+
+  Two senses of "quarter" come out of this, and they are 17 days apart:
+    - the MEASUREMENT quarter [startDay, endDay], 91.25 days from activation,
+      over which FPV is measured for the gate;
+    - the FUNDING quarter [fundFrom, fundTo], the same window offset by
+      TIMELOCK_END, over which the service weight an Orchestrator is paid at
+      is actually constant.
 */
 function computeScenario(passes) {
   const quarters = [];
-  let w2 = null;        // service weight in force during the quarter
   let gateIdx = 0;      // next rung of the ladder to attempt
   let lastIdx = -1;     // rung attempted at the previous gated close
   let attempt = 0;      // consecutive closes that have attempted that rung
@@ -801,22 +870,17 @@ function computeScenario(passes) {
       w1Start: w1AtDay((k - 1) * QUARTER_DAYS),
       w1End: w1AtDay(k * QUARTER_DAYS)
     };
-    if (q.bootstrap) {
-      // Service mirrors 1 - w1 through the bootstrap quarter, so nothing burns.
-      q.w2Start = W2_BOOTSTRAP;
-      q.w2End = W2_BASE;
-    } else {
-      q.w2Start = q.w2End = w2;
-    }
-    q.w0Start = r6(Math.max(0, 1 - q.w1Start - q.w2Start));
-    q.w0End = r6(Math.max(0, 1 - q.w1End - q.w2End));
+    /* The funding window aligned to this measurement quarter. Q1 is funded from
+       activation, since its w2 is the bootstrap ramp rather than a gate result. */
+    q.fundFrom = q.startDay + (q.bootstrap ? 0 : TIMELOCK_END);
+    q.fundTo = q.endDay + TIMELOCK_END;
 
     if (q.bootstrap) {
       q.gate = null;
       q.gateState = 'bootstrap';
     } else if (gateIdx >= GATES.length) {
-      // Unreachable with 8 rungs across 8 gated closes. Kept as a guard so
-      // that changing N_QUARTERS or the ladder cannot produce a w2 above 50%.
+      /* Unreachable with 8 rungs across 8 gated closes. Kept as a guard so
+         that changing N_QUARTERS or the ladder cannot produce a w2 above 50%. */
       q.gate = null;
       q.gateState = 'terminal';
     } else {
@@ -828,36 +892,52 @@ function computeScenario(passes) {
       q.gateState = passed ? 'pass' : 'fail';
     }
     quarters.push(q);
-
-    if (q.bootstrap) w2 = W2_BASE;
-    else if (q.gate && q.gate.passed) { w2 = r6(w2 + W2_STEP); gateIdx++; }
+    if (q.gate && q.gate.passed) gateIdx++;
   }
 
+  /* Now that every outcome is known, resolve the weights each quarter sees. */
+  for (const q of quarters) {
+    q.w2Start = w2Level(quarters, q.startDay);
+    q.w2End = w2Level(quarters, q.endDay);
+    q.w0Start = r6(Math.max(0, 1 - q.w1Start - q.w2Start));
+    q.w0End = r6(Math.max(0, 1 - q.w1End - q.w2End));
+    /* The day this quarter's own cleared gate takes effect, and the level it
+       sets — the start of the next funding window. */
+    q.stepDay = q.gate && q.gate.passed ? q.endDay + TIMELOCK_END : null;
+    q.fundedW2 = w2Level(quarters, q.fundFrom + 1e-9);
+  }
+
+  const w2Final = W2_BASE + gateIdx * W2_STEP;
   const terminal = {
-    day: N_QUARTERS * QUARTER_DAYS,
+    /* The last gate is checked at the Q9 close and lands 17 days later. */
+    day: N_QUARTERS * QUARTER_DAYS + TIMELOCK_END,
+    closeDay: N_QUARTERS * QUARTER_DAYS,
     w1: W1_FLOOR,
-    w2,
-    w0: r6(Math.max(0, 1 - W1_FLOOR - w2)),
+    w2: r6(w2Final),
+    w0: r6(Math.max(0, 1 - W1_FLOOR - w2Final)),
     gatesPassed: gateIdx,
     gatesRemaining: GATES.length - gateIdx,
     nextGate: gateIdx < GATES.length ? GATES[gateIdx] : null,
-    isBestCase: w2 === W2_TERMINAL
+    isBestCase: r6(w2Final) === W2_TERMINAL
   };
-  return { quarters, terminal };
+
+  const verts = buildVertices(quarters, terminal);
+  const burns = verts.map(v => v.w0);
+  /* The peak sits just before a write lands, not at a quarter close, so it has
+     to come off the breakpoints. */
+  const scenario = { quarters, terminal, burnPeak: Math.max.apply(null, burns) };
+  /* The trough after the bootstrap quarter: burn never returns to zero,
+     because w1 moves for 17 days before w2 catches up. */
+  const after = verts.filter(v => v.day > QUARTER_DAYS && v.day < terminal.day);
+  scenario.burnFloor = after.length ? Math.min.apply(null, after.map(v => v.w0)) : 0;
+  scenario.stepLagDays = TIMELOCK_END;
+  scenario.lagBurn = r6(W1_PER_QUARTER * (TIMELOCK_END / QUARTER_DAYS));
+  return scenario;
 }
 
-/* Vertices for the stacked bands. Count is constant across scenarios so the
-   chart can tween between them. */
+/* Vertices for the stacked bands. */
 function bandVertices(scenario) {
-  const v = [];
-  for (const q of scenario.quarters) {
-    v.push({ day: q.startDay, w1: q.w1Start, w2: q.w2Start });
-    v.push({ day: q.endDay, w1: q.w1End, w2: q.w2End });
-  }
-  const t = scenario.terminal;
-  v.push({ day: t.day, w1: t.w1, w2: t.w2 });
-  v.push({ day: t.day + TERMINAL_DAYS, w1: t.w1, w2: t.w2 });
-  return v;
+  return buildVertices(scenario.quarters, scenario.terminal);
 }
 
 const TOTAL_DAYS = N_QUARTERS * QUARTER_DAYS + TERMINAL_DAYS;
@@ -1078,11 +1158,11 @@ const DEFAULT_ACTIVATION = '2026-10-15';
 
 const MODEL = {
   DAY_MS, QUARTER_DAYS, N_QUARTERS, TERMINAL_DAYS, TOTAL_DAYS,
-  W1_START, W1_FLOOR, W2_BOOTSTRAP, W2_BASE, W2_STEP, W2_TERMINAL,
+  W1_START, W1_FLOOR, W1_PER_QUARTER, W2_BOOTSTRAP, W2_BASE, W2_STEP, W2_TERMINAL,
   GATES, VOL_TARGET_ENTRY, VOL_TARGET_RATIO, FIP_EPOCHS_PER_QUARTER, EPOCH_SECONDS,
   POSTING_DAYS, VERIFY_DAYS, VERIFY_END, REPORT_DUE, TIMELOCK_DAYS, TIMELOCK_END,
   ACTORS, LANE_ORDER, STANDING, DEFAULT_ACTIVATION,
-  w1AtDay, w2AtDay, weightsAtDay, computeScenario, bandVertices, eventsForQuarter,
+  w1AtDay, w2AtDay, w2Level, weightsAtDay, computeScenario, bandVertices, buildVertices, eventsForQuarter,
   parseISODate, toISODate, dayMs, fmtLong, fmtShort, fmtTick, fmtRange, fmtUSD, fmtUSDShort, fmtPct
 };
 /* ==================== MODEL END ==================== */
@@ -1225,7 +1305,7 @@ function scenarioSentence() {
   return t.gatesPassed + ' of ' + GATES.length + ' gates clear. From ' + fmtLong(qDate(t.day))
     + ': w1 ' + fmtPct(t.w1) + ', w2 ' + fmtPct(t.w2) + ', w0 ' + fmtPct(t.w0) + '.';
 }
-const peakBurn = () => Math.max.apply(null, state.scenario.quarters.map(q => q.w0End));
+const peakBurn = () => state.scenario.burnPeak;
 
 /* ---------- URL state ---------- */
 function writeURL() {
@@ -1273,11 +1353,11 @@ function chipFor(q) {
   if (sel) btn.setAttribute('aria-current', 'true');
   btn.setAttribute('aria-label', 'Quarter ' + q.n + ' of ' + N_QUARTERS + ', '
     + fmtLong(qDate(q.startDay)) + ' to ' + fmtLong(qDate(q.endDay))
-    + ', service weight ' + fmtPct(q.bootstrap ? q.w2End : q.w2Start));
+    + ', funded at service weight ' + fmtPct(q.w2End));
   btn.appendChild(tag('div', 'chip-q', 'Q' + q.n));
-  btn.appendChild(tag('div', 'chip-w2', 'w2 ' + (q.bootstrap
-    ? fmtPct(q.w2Start) + '→' + fmtPct(q.w2End)
-    : fmtPct(q.w2Start))));
+  btn.appendChild(tag('div', 'chip-w2', 'w2 ' + (q.w2Start === q.w2End
+    ? fmtPct(q.w2End)
+    : fmtPct(q.w2Start) + '→' + fmtPct(q.w2End))));
   btn.appendChild(tag('div', 'chip-dates detail-only',
     fmtShort(qDate(q.startDay)) + ' – ' + fmtShort(qDate(q.endDay))));
   btn.appendChild(tag('div', 'chip-meta detail-only', q.gate
@@ -1403,17 +1483,23 @@ function renderQuarterLine() {
   const q = state.scenario.quarters[state.selected - 1];
   $('microTitle').textContent = 'Q' + q.n + ' of ' + N_QUARTERS;
   $('microSub').textContent = '';
-  host.appendChild(document.createTextNode(fmtShort(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay)) + ' · '));
+  host.appendChild(document.createTextNode('measures '));
+  add('k', fmtShort(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay)));
+  host.appendChild(document.createTextNode(' · funds '));
+  add('k', fmtShort(qDate(q.fundFrom)) + ' – ' + fmtLong(qDate(q.fundTo)));
+  host.appendChild(document.createTextNode(' at w2 ' + fmtPct(q.fundedW2) + ' · '));
   if (q.gate) {
     add('k', 'gate ' + q.gate.n + ' at ' + fmtUSD(q.gate.target));
     host.appendChild(document.createTextNode(q.gate.attempt > 1 ? ' (attempt ' + q.gate.attempt + ')' : ''));
     host.appendChild(document.createTextNode(' · '));
-    const st = tag('span', q.gate.passed ? 'state-pass' : 'state-fail', q.gate.passed ? 'clears' : 'missed');
-    host.appendChild(st);
+    host.appendChild(tag('span', q.gate.passed ? 'state-pass' : 'state-fail', q.gate.passed ? 'clears' : 'missed'));
+    if (q.gate.passed) {
+      host.appendChild(document.createTextNode(' \u2192 w2 ' + fmtPct(q.gate.to) + ' from '
+        + fmtShort(qDate(q.stepDay))));
+    }
   } else {
     host.appendChild(document.createTextNode(q.bootstrap ? 'no gate check' : 'w2 at its terminal 50%'));
   }
-  host.appendChild(document.createTextNode(' · close cycle to ' + fmtShort(qDate(q.endDay + TIMELOCK_END))));
 }
 
 /* ---------- tables ---------- */
@@ -1452,7 +1538,7 @@ function renderScheduleTable() {
     cell(tr, fmtShort(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay)), 'tl');
     cell(tr, fmtPct(q.w1Start), 'n');
     cell(tr, fmtPct(q.w1End), 'n');
-    cell(tr, q.bootstrap ? fmtPct(q.w2Start) + '→' + fmtPct(q.w2End) : fmtPct(q.w2Start), 'n');
+    cell(tr, q.w2Start === q.w2End ? fmtPct(q.w2End) : fmtPct(q.w2Start) + '→' + fmtPct(q.w2End), 'n');
     cell(tr, fmtPct(q.w0Start), 'n');
     cell(tr, fmtPct(q.w0End), 'n');
     cell(tr, q.gate ? 'Gate ' + q.gate.n + (q.gate.attempt > 1 ? ' (attempt ' + q.gate.attempt + ')' : '') : '—', 'tl');
@@ -1555,8 +1641,8 @@ function macroAltText() {
   for (const q of state.scenario.quarters) if (q.gate && !q.gate.passed) failed.push('Q' + q.n);
   return 'Stacked area chart of the block-reward split from ' + fmtLong(qDate(0)) + ' to ' + fmtLong(qDate(TOTAL_DAYS)) + '. '
     + 'The consensus weight w1 ramps continuously from 95% down to 50% by ' + fmtLong(qDate(N_QUARTERS * QUARTER_DAYS)) + '. '
-    + 'The service weight w2 starts at 5%, reaches 10% by the end of the bootstrap quarter, then steps up 5 points at each quarter close whose volume gate passes. '
-    + 'Burn w0 takes whatever w1 and w2 leave, so inside each quarter it climbs 5 points and drops 5 whenever w2 steps up. '
+    + 'The service weight w2 starts at 5%, reaches 10% by the end of the bootstrap quarter, then steps up 5 points for each cleared gate — but 17 days after that quarter closes, not at the close, because the gate check waits for the verification window and its write then waits out a 7-day timelock. '
+    + 'Burn w0 takes whatever w1 and w2 leave, so it climbs 5 points a quarter and drops 5 whenever a write lands. Because w1 keeps moving through those 17 days, burn never returns to zero after the bootstrap quarter: it sawtooths between ' + fmtPct(state.scenario.burnFloor) + ' and ' + fmtPct(state.scenario.burnPeak) + ' here. '
     + 'Across this scenario burn peaks at ' + fmtPct(Math.max.apply(null, state.scenario.quarters.map(q => q.w0End))) + '. '
     + (failed.length
         ? 'The gate is missed at ' + failed.join(', ') + ', so w2 holds there and burn grows. '
@@ -1593,10 +1679,11 @@ function renderMacro(opts) {
   svg.style.fontSize = fs + 'px';
   $('macroAlt').textContent = macroAltText();
   $('macroCaption').textContent =
-    'Bottom up: consensus, service, burn. w1 falls continuously; w2 steps up 5 points only at a close whose '
-    + 'gate clears, after ramping to 10% through Q1. Burn takes the rest — it climbs 5 points a quarter and '
-    + 'drops 5 whenever w2 steps. Peak here ' + fmtPct(peakBurn())
-    + (sc.terminal.isBestCase ? ', which is the best case.' : ', best case 5%.');
+    'Bottom up: consensus, service, burn. w1 falls continuously; a cleared gate raises w2 by 5 points '
+    + '17 days after the quarter closes, once the write clears its timelock. w1 moves through that gap, so '
+    + 'burn never returns to zero after Q1 — it sawtooths between ' + fmtPct(sc.burnFloor) + ' and '
+    + fmtPct(sc.burnPeak) + ' here'
+    + (sc.terminal.isBestCase ? ', even clearing every gate.' : '.');
   $('macroRange').textContent = fmtLong(qDate(V.d0)) + ' – ' + fmtLong(qDate(V.d1))
     + (V.d1 - V.d0 < TOTAL_DAYS - 0.5 ? ' · zoomed' : ' · assumed activation');
 
@@ -1707,10 +1794,21 @@ function renderMacro(opts) {
       { 'text-anchor': 'middle', 'font-size': fs, fill: on ? P['--accent'] : null, 'font-weight': on ? 700 : null }));
   }
   const termOn = state.selected === TERMINAL_SLOT;
-  const termX = slice(N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS);
+  const termX = slice(sc.terminal.day, TOTAL_DAYS);
   if (termX != null) gAxis.appendChild(txt(termX, y0 + Math.round(14 * S),
     qWidth < 62 * S ? 'Term.' : 'Terminal', 'qlabel tick',
     { 'text-anchor': 'middle', 'font-size': Math.round(10 * S), fill: termOn ? P['--accent'] : null, 'font-weight': termOn ? 700 : null }));
+  /* Where each write lands — the start of a funding quarter, 17 days after the
+     measurement quarter it was earned in. */
+  for (let k = 2; k <= N_QUARTERS; k++) {
+    const xl = X(k * QUARTER_DAYS + TIMELOCK_END);
+    if (!inView(xl)) continue;
+    const t = 4 * S;
+    gAxis.appendChild(el('path', {
+      class: 'fund-tick',
+      d: 'M' + (xl - t) + ' ' + (y0 + 1) + 'L' + xl + ' ' + (y0 - t + 1) + 'L' + (xl + t) + ' ' + (y0 + 1) + 'Z'
+    }));
+  }
   gAxis.appendChild(el('line', { x1: x0, x2: x1, y1: y0, y2: y0, class: 'axis-line' }));
   svg.appendChild(gAxis);
 
@@ -1732,7 +1830,7 @@ function renderMacro(opts) {
   svg.appendChild(gMarks0);
   const selSpan = state.selected <= N_QUARTERS
     ? [sc.quarters[state.selected - 1].startDay, sc.quarters[state.selected - 1].endDay]
-    : [N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS];
+    : [sc.terminal.day, TOTAL_DAYS];
   const gSel = el('g', { 'clip-path': 'url(#plot-clip)' });
   gSel.appendChild(el('rect', {
     class: 'qband-sel', x: X(selSpan[0]) + 0.75, y: y1 + 0.75, width: X(selSpan[1]) - X(selSpan[0]) - 1.5, height: y0 - y1 - 1.5,
@@ -1776,7 +1874,7 @@ function renderMacro(opts) {
     const mx = ev.clientX - r.left;
     return Math.max(0, Math.min(TOTAL_DAYS, V.d0 + ((mx - x0) / (x1 - x0)) * (V.d1 - V.d0)));
   };
-  const slotFor = day => (day >= N_QUARTERS * QUARTER_DAYS ? TERMINAL_SLOT : Math.min(N_QUARTERS, Math.floor(day / QUARTER_DAYS) + 1));
+  const slotFor = day => (day >= sc.terminal.day ? TERMINAL_SLOT : Math.min(N_QUARTERS, Math.floor(day / QUARTER_DAYS) + 1));
 
   const onMove = ev => {
     const day = dayFromEvent(ev);
@@ -1785,7 +1883,7 @@ function renderMacro(opts) {
     xh.setAttribute('x1', px); xh.setAttribute('x2', px); xh.setAttribute('opacity', 1);
     xhB.setAttribute('x1', px + 1); xhB.setAttribute('x2', px + 1); xhB.setAttribute('opacity', 1);
     const slot = slotFor(day);
-    const span = slot <= N_QUARTERS ? [sc.quarters[slot - 1].startDay, sc.quarters[slot - 1].endDay] : [N_QUARTERS * QUARTER_DAYS, TOTAL_DAYS];
+    const span = slot <= N_QUARTERS ? [sc.quarters[slot - 1].startDay, sc.quarters[slot - 1].endDay] : [sc.terminal.day, TOTAL_DAYS];
     hoverRect.setAttribute('x', X(span[0]));
     hoverRect.setAttribute('width', X(span[1]) - X(span[0]));
     hoverRect.setAttribute('class', 'qband');
@@ -2370,7 +2468,8 @@ function glancePanel(q) {
 
   const rows = [
     ['w1 consensus', fmtPct(q.w1Start) + ' → ' + fmtPct(q.w1End), 'var(--w1)'],
-    ['w2 service', q.bootstrap ? fmtPct(q.w2Start) + ' → ' + fmtPct(q.w2End) : fmtPct(q.w2Start) + ' (flat)', 'var(--w2)'],
+    ['w2 service', q.w2Start === q.w2End ? fmtPct(q.w2End) + ' (flat)'
+      : fmtPct(q.w2Start) + ' → ' + fmtPct(q.w2End) + ' on ' + fmtShort(qDate(q.fundFrom)), 'var(--w2)'],
     ['w0 burn', fmtPct(q.w0Start) + ' → ' + fmtPct(q.w0End), 'var(--w0)']
   ];
   for (const [k, v, col] of rows) {
@@ -2393,6 +2492,10 @@ function glancePanel(q) {
       + ' · ' + fmtUSD(q.gate.target) + ' · '
       + (q.gate.passed ? 'clears → w2 ' + fmtPct(q.gate.to) : 'missed → w2 holds at ' + fmtPct(q.gate.from))
     : (q.bootstrap ? 'None — the bootstrap quarter runs no gate check' : 'None — w2 is already at its terminal 50%'));
+  put('Measurement quarter', fmtShort(qDate(q.startDay)) + ' – ' + fmtLong(qDate(q.endDay))
+    + ' — the window FPV is measured over for the gate');
+  put('Funding quarter', fmtShort(qDate(q.fundFrom)) + ' – ' + fmtLong(qDate(q.fundTo))
+    + ' — the same window 17 days later, over which w2 is constant at ' + fmtPct(q.fundedW2));
   put('Deadlines', 'close ' + fmtShort(qDate(q.endDay))
     + ' · posting ends ' + fmtShort(qDate(q.endDay + POSTING_DAYS))
     + ' · report due ' + fmtShort(qDate(q.endDay + REPORT_DUE))
